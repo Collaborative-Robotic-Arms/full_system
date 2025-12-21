@@ -1,0 +1,9 @@
+[submodule "IFRA_ObjectPose"]
+	path = IFRA_ObjectPose
+	url = https://github.com/IFRA-Cranfield/IFRA_ObjectPose.git
+[submodule "IFRA_LinkPose"]
+	path = IFRA_LinkPose
+	url = https://github.com/IFRA-Cranfield/IFRA_LinkPose.git
+[submodule "IFRA_LinkAttacher"]
+	path = IFRA_LinkAttacher
+	url = https://github.com/IFRA-Cranfield/IFRA_LinkAttacher.git

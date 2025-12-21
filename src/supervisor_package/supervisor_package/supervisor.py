@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import time
 import rclpy
 from rclpy.node import Node
@@ -6,8 +7,8 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import Pose
 
 # Import your custom interfaces here
-# from my_project_msgs.srv import GetAssemblyPlan, DetectBricks
-# from my_project_msgs.action import MoveToPose, AlignToTarget, ExecuteTask
+from supervisor_package.srv import GetAssemblyPlan, DetectBricks
+from supervisor_package.action import MoveToPose, AlignToTarget, ExecuteTask
 
 class AssemblySupervisor(Node):
 

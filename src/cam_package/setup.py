@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'supervisor_package'
+package_name = 'cam_package'
 
 setup(
     name=package_name,
@@ -24,7 +24,6 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'supervisor = supervisor_package.supervisor:main',
         ],
     },
 )
