@@ -1,0 +1,114 @@
+<?xml version="1.0" ?>
+<robot name="dual_arms_with_environment" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  
+  <xacro:include filename="$(find assembly_environment)/urdf/environment.xacro" />
+  <xacro:include filename="$(find annin_ar4_description)/urdf/ar_macro.xacro" />
+  <xacro:include filename="$(find annin_ar4_description)/urdf/ar_gripper_macro.xacro" />
+  <xacro:include filename="$(find annin_ar4_description)/urdf/ar_camera_macro.xacro" />
+  
+  <xacro:include filename="$(find dual_arms)/urdf/irb120_wrapper.xacro" /> 
+  <xacro:include filename="$(find dual_arms)/urdf/dual_arms.gazebo.xacro" />
+  <xacro:include filename="$(find abb_gripper_urdf)/urdf/abb_gripper_macro.xacro" />
+  
+
+  <link name="world"/>
+
+  <xacro:environment/>
+  <link name="aruco_target_frame"/>
+
+  <joint name="world_to_aruco_target_frame_joint" type="fixed">
+      <parent link="world"/>
+      <child link="aruco_target_frame"/>
+      <origin xyz="1.0 0.0 1.1" rpy="0.0 1.5708 0.0"/>
+  </joint>
+  <joint name="world_to_environment_joint" type="fixed">
+    <parent link="world"/>
+    <child link="abb_table"/>
+    <origin xyz="0.3325 0 1.1" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:ar_robot
+    tf_prefix="ar4_"
+    parent="ar4_table"
+    robot_parameters_file="$(find annin_ar4_description)/config/mk3.yaml">
+    <origin xyz="0 0 0" rpy="0 0 1.5708"/>
+  </xacro:ar_robot>
+
+  <xacro:ar_gripper
+    tf_prefix="ar4_"
+    parent="ar4_ee_link"/>
+  
+  <xacro:ar_camera
+    tf_prefix="ar4_"
+    parent="ar4_ee_link"/>
+  
+  <xacro:irb120_mounted parent="abb_table">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:irb120_mounted> 
+
+
+  <xacro:abb_gripper arm_parent_link="tool0" gripper_prefix="gripper_"/>
+ <!-- <link name="Base_brick">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///home/mohamed/full_system/src/dual_arms/meshes/bricks/base_brick.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="Black">
+        <color rgba="0.0 0.0 0.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///home/mohamed/full_system/src/dual_arms/meshes/bricks/base_brick.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.1" ixy="0.0" ixz="0.0" iyy="0.1" iyz="0.0" izz="0.1"/>
+    </inertial>
+  </link>
+
+  <gazebo reference="Base_brick">
+    <material>Gazebo/Black</material>
+  </gazebo>
+    
+    <joint name="world_to_base_brick_joint" type="fixed">
+    <parent link="world"/>
+    <child link="Base_brick"/>
+    <origin xyz="0.6 0 1.1" rpy="0 0 0"/> 
+  </joint>
+    
+    <link name="T_brick_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///home/mohamed/full_system/src/dual_arms/meshes/bricks/T_brick.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="Blue">
+        <color rgba="0.0 0.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///home/mohamed/full_system/src/dual_arms/meshes/bricks/T_brick.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.1" ixy="0.0" ixz="0.0" iyy="0.1" iyz="0.0" izz="0.1"/>
+    </inertial>
+  </link>
+
+  <gazebo reference="T_brick_1">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+
+  <joint name="world_to_T_brick_1" type="fixed">
+    <parent link="world"/>
+    <child link="T_brick_1"/>
+    <origin xyz="0.6 0 1.14" rpy="0 0 0"/> 
+  </joint> -->
+</robot>

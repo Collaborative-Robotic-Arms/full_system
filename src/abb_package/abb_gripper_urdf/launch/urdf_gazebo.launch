@@ -1,0 +1,33 @@
+<launch>
+  <!-- Launch Gazebo Sim with the empty world -->
+  <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
+    <arg name="gz_args" value="empty.sdf"/>
+  </include>
+
+  <!-- Process the xacro file into a URDF string using the 'command' substitution -->
+  <!-- Note: We use the `abb_gripper` package name to find the file -->
+  <arg name="robot_description_content" default="$(find-pkg-share abb_gripper)/urdf/urdf/abb_gripper.urdf.xacro" description="Path to the URDF file"/>
+  <!-- <arg name="robot_description_content" value="$(command 'xacro $(find-pkg-share abb_gripper)/urdf/abb_gripper.urdf.xacro')" /> -->
+
+  <!-- Publish the robot description from the URDF string -->
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" output="screen">
+    <param name="robot_description" value="$(var robot_description_content)" />
+  </node>
+
+  
+
+  <!-- <arg name="model" default="$(find-pkg-share ros2srrc_robots)/irb120/urdf/combined_irb120.urdf.xacro" description="Path to the URDF file"/> -->
+
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher">
+    <param name="robot_description" value="$(command 'xacro $(var model)')"/></node>
+  <!-- Spawn the robot entity from the /robot_description topic -->
+  <node pkg="ros_gz_sim" exec="create" output="screen">
+    <arg name="topic" value="robot_description" />
+    <arg name="name" value="abb120" />
+    <arg name="x" value="0.0" />
+    <arg name="y" value="0.0" />
+    <arg name="z" value="1.0" />
+  </node>
+</launch>
+
+

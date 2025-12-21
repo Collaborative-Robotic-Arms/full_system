@@ -1,0 +1,19 @@
+# Default initial positions for dual_arms's ros2_control fake system
+
+initial_positions:
+  ar4gripper_jaw1_joint: 0.0
+  ar4gripper_jaw2_joint: 0.0
+  ar4_joint_1: 0.0
+  ar4_joint_2: 0.0
+  ar4_joint_3: 0.0
+  ar4_joint_4: 0.0
+  ar4_joint_5: -90.0
+  ar4_joint_6: 0.0
+  joint_1: 0.0
+  joint_2: 0.0
+  joint_3: 0.0
+  joint_4: 0.0
+  joint_5: 0.0
+  joint_6: 0.0
+  gripper_ABB_Gripper_Finger_1_Joint: 0.0
+  gripper_ABB_Gripper_Finger_2_Joint: 0.0

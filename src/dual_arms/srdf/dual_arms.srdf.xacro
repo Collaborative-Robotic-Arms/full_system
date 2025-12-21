@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="dual_arms">
+  <xacro:arg name="tf_prefix" default="ar4_"/>
+  <xacro:arg name="include_gripper" default="true"/>
+
+  <!-- AR4 Definitions -->
+  <xacro:include filename="$(find annin_ar4_moveit_config)/srdf/ar_macro.srdf.xacro"/>
+  <xacro:ar_srdf tf_prefix="$(arg tf_prefix)"/>
+
+  <xacro:if value="$(arg include_gripper)">
+    <xacro:include filename="$(find annin_ar4_moveit_config)/srdf/ar_gripper_macro.srdf.xacro"/>
+    <xacro:ar_gripper_srdf tf_prefix="$(arg tf_prefix)"/>
+  </xacro:if>
+
+  <!-- IRB120 SRDF -->
+  <xacro:include filename="$(find ros2srrc_irb120_moveit2)/config/irb120.srdf"/>
+
+  <!-- Supergroup -->
+  <group name="dual_arms">
+    <subgroup name="ar_manipulator"/>
+    <subgroup name="irb120_arm"/>
+  </group>
+</robot>
+

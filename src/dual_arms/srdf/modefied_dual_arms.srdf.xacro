@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot name="dual_arms" xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:property name="prefix" value="ar4_" />
+
+  <group name="${prefix}">
+    <joint name="${prefix}base_joint"/>
+    <joint name="${prefix}joint_1"/>
+    <joint name="${prefix}joint_3"/>
+    <joint name="${prefix}joint_2"/>
+    <joint name="${prefix}joint_4"/>
+    <joint name="${prefix}joint_5"/>
+    <joint name="${prefix}joint_6"/>
+    <joint name="${prefix}ee_joint"/>
+  </group>
+
+  <group name="irb120">
+    <joint name="irb120_world_joint"/>
+    <joint name="base_link-base"/>
+    <joint name="joint_1"/>
+    <joint name="joint_2"/>
+    <joint name="joint_3"/>
+    <joint name="joint_4"/>
+    <joint name="joint_5"/>
+    <joint name="joint_6"/>
+    <joint name="joint_6-flange"/>
+    <joint name="link_6-tool0"/>
+  </group>
+
+  <group name="${prefix}ee">
+    <joint name="${prefix}gripper_base_joint"/>
+    <joint name="${prefix}gripper_jaw1_joint"/>
+    <joint name="${prefix}gripper_jaw2_joint"/>
+  </group>
+
+  <group name="dual_arms">
+    <group name="${prefix}arm"/>
+    <group name="irb120_arm"/>
+  </group>
+
+  <end_effector name="${prefix}ee" parent_link="${prefix}ee_link" group="${prefix}ee" parent_group="${prefix}"/>
+
+  <disable_collisions link1="${prefix}base_link" link2="${prefix}link_1" reason="Adjacent"/>
+  <disable_collisions link1="${prefix}base_link" link2="${prefix}link_2" reason="Never"/>
+  <disable_collisions link1="${prefix}base_link" link2="${prefix}link_3" reason="Never"/>
+  <disable_collisions link1="${prefix}base_link" link2="${prefix}link_4" reason="Never"/>
+  <disable_collisions link1="${prefix}base_link" link2="base_link" reason="Adjacent"/>
+  <disable_collisions link1="${prefix}base_link" link2="link_1" reason="Never"/>
+  <disable_collisions link1="${prefix}base_link" link2="link_2" reason="Never"/>
+  <disable_collisions link1="${prefix}base_link" link2="link_3" reason="Never"/>
+  <disable_collisions link1="${prefix}base_link" link2="link_4" reason="Never"/>
+  <disable_collisions link1="${prefix}base_link" link2="link_5" reason="Never"/>
+  <disable_collisions link1="${prefix}base_link" link2="link_6" reason="Never"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="${prefix}gripper_jaw1_link" reason="Adjacent"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="${prefix}gripper_jaw2_link" reason="Adjacent"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="${prefix}link_1" reason="Never"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="${prefix}link_2" reason="Never"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="${prefix}link_3" reason="Never"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="${prefix}link_4" reason="Never"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="${prefix}link_5" reason="Default"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="${prefix}link_6" reason="Adjacent"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="base_link" reason="Never"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="link_1" reason="Never"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="link_2" reason="Never"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="link_3" reason="Never"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="link_4" reason="Never"/>
+  <disable_collisions link1="${prefix}gripper_base_link" link2="link_5" reason="Never"/>
+</robot>
+

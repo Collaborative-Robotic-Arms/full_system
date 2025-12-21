@@ -1,0 +1,21 @@
+[submodule "abb_librws"]
+	path = abb_librws
+	url = https://github.com/Collaborative-Robotic-Arms/abb_librws.git
+[submodule "abb_ros2_msgs"]
+	path = abb_ros2_msgs
+	url = https://github.com/Collaborative-Robotic-Arms/abb_ros2_msgs.git
+[submodule "abb_ros2"]
+	path = abb_ros2
+	url = https://github.com/Collaborative-Robotic-Arms/abb_ros2.git
+[submodule "abb_egm_rws_managers"]
+	path = abb_egm_rws_managers
+	url = https://github.com/Collaborative-Robotic-Arms/abb_egm_rws_managers.git
+[submodule "abb_libegm"]
+	path = abb_libegm
+	url = https://github.com/Collaborative-Robotic-Arms/abb_libegm.git
+[submodule "abb_endeffector_control"]
+	path = abb_endeffector_control
+	url = https://github.com/Collaborative-Robotic-Arms/abb_endeffector_control.git
+[submodule "abb_highlevel_bridge"]
+	path = abb_highlevel_bridge
+	url = https://github.com/Collaborative-Robotic-Arms/abb_highlevel_bridge.git

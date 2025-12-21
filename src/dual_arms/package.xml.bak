@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>dual_arms</name>
+  <version>0.0.1</version>
+  <description>Launch file for running both ABB IRB120 and AR4 in MoveIt and Gazebo</description>
+  <maintainer email="your_email@example.com">Your Name</maintainer>
+  <license>Apache-2.0</license>
+
+  <!-- 🔹 Build System -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 🔹 Build Dependencies -->
+  <build_depend>rosidl_default_generators</build_depend>
+
+  <!-- 🔹 ROS 2 Core -->
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>yaml-cpp</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>action_msgs</depend>
+
+  <!-- 🔹 Launch -->
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <depend>ros2launch</depend>
+
+  <!-- 🔹 MoveIt2 -->
+  <depend>moveit_core</depend>
+  <depend>moveit_msgs</depend>
+  <depend>moveit_ros_planning_interface</depend>
+  <depend>moveit_ros_planning</depend>
+  <depend>moveit_ros_move_group</depend>
+  <depend>moveit_ros_visualization</depend>
+  <depend>moveit_planners_ompl</depend>
+  <depend>moveit_visual_tools</depend>
+
+  <!-- 🔹 Controllers and Plugins -->
+  <depend>controller_manager</depend>
+  <depend>pluginlib</depend>
+  <depend>boost</depend>
+  <depend>joint_state_broadcaster</depend>
+  <depend>joint_trajectory_controller</depend>
+
+  <!-- 🔹 Gazebo & Simulation -->
+  <depend>ros_gz_sim</depend>
+  <depend>ros_gz_bridge</depend>
+
+  <!-- 🔹 Robot Descriptions -->
+  <depend>urdf</depend>
+  <depend>xacro</depend>
+
+  <!-- 🔹 ABB IRB120 -->
+  <depend>ros2srrc_data</depend>
+  <depend>ros2srrc_execution</depend>
+  <depend>ros2srrc_robots</depend>
+  <depend>abb_robot_msgs</depend>
+  <depend>linkattacher_msgs</depend>
+  <depend>ros2_robotiqgripper</depend>
+
+  <!-- 🔹 AR4 -->
+  <depend>annin_ar4_driver</depend>
+  <depend>annin_ar4_gazebo</depend>
+  <depend>annin_ar4_moveit_config</depend>
+
+  <!-- 🔹 ROSIDL -->
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <!-- 🔹 Export -->
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+

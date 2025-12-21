@@ -1,0 +1,24 @@
+<?xml version="1.0" ?>
+<robot name="test_gripper">
+    
+    <!-- PLANNING GROUP: Only include the Active Joint (Finger 1) -->
+    <!-- This ensures RViz shows only 1 Slider -->
+    <group name="gripper">
+        <joint name="gripper_ABB_Gripper_Finger_1_Joint"/>
+    </group>
+
+    <!-- PREDEFINED POSES -->
+    <group_state name="open" group="gripper">
+        <joint name="gripper_ABB_Gripper_Finger_1_Joint" value="0.0"/>
+    </group_state>
+    
+    <group_state name="closed" group="gripper">
+        <joint name="gripper_ABB_Gripper_Finger_1_Joint" value="0.0135"/>
+    </group_state>
+
+    <!-- DISABLE COLLISIONS -->
+    <disable_collisions link1="gripper_base_link" link2="gripper_ABB_Gripper_Finger_1" reason="Default" />
+    <disable_collisions link1="gripper_base_link" link2="gripper_ABB_Gripper_Finger_2" reason="Default" />
+    <disable_collisions link1="gripper_ABB_Gripper_Finger_1" link2="gripper_ABB_Gripper_Finger_2" reason="Default" />
+
+</robot>

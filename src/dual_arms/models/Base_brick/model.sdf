@@ -1,0 +1,62 @@
+<?xml version="1.0" ?>
+<sdf version="1.5">
+  <model name='Base_brick'>
+    <static>true</static>
+    <pose>0 0 0 0 0 0</pose> 
+
+    <link name='link'>
+      <inertial>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>0.166667</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.166667</iyy>
+          <iyz>0</iyz>
+          <izz>0.166667</izz>
+        </inertia>
+        <pose>0 0 0 0 0 0</pose>
+      </inertial>
+
+      <collision name='collision'>
+        <geometry>
+          <mesh>
+            <uri>model://Base_brick/base_brick.STL</uri>
+            <scale>0.001 0.001 0.001</scale>
+          </mesh>
+        </geometry>
+        <surface>
+          <contact>
+            <ode/>
+          </contact>
+          <bounce/>
+          <friction>
+            <torsional>
+              <ode/>
+            </torsional>
+            <ode/>
+          </friction>
+        </surface>
+        <max_contacts>10</max_contacts>
+      </collision>
+
+      <visual name='Base_brick_visual'>
+        <geometry>
+          <mesh>
+            <uri>model://Base_brick/base_brick.STL</uri>
+            <scale>0.001 0.001 0.001</scale>
+          </mesh>
+        </geometry>
+        
+        <material>
+          <ambient>0.2 0.2 0.2 1.0</ambient> 
+          <diffuse>0.2 0.2 0.2 1.0</diffuse>
+          <specular>0.5 0.5 0.5 1.0</specular> 
+        </material>
+        
+      </visual> <self_collide>0</self_collide>
+      <enable_wind>0</enable_wind>
+      <kinematic>0</kinematic>
+    </link>
+  </model>
+</sdf>

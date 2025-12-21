@@ -1,0 +1,18 @@
+material ArUco/Marker
+{
+  technique
+  {
+    pass
+    {
+      // Set the base color to white
+      ambient 1 1 1 1
+      diffuse 1 1 1 1
+
+      texture_unit
+      {
+        // This path is relative to the .material file
+        texture aruco.png
+      }
+    }
+  }
+}

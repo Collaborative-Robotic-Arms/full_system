@@ -1,0 +1,30 @@
+# Planner configuration for the TrajOpt plugin
+# Refer to the TrajOpt documentation for all possible parameters
+planning_pipelines:
+  # This is the name of the planning pipeline, it can be anything you want.
+  # We will reference this name in the move_group node's parameters.
+  trajopt:
+    planning_plugin: "trajopt_ros/TrajOptPlanner"
+
+    # The default planner for this pipeline
+    default_planner_request_adapters: "default_planner_request_adapters/AddTimeOptimalParameterization"
+    
+    # Parameters for the TrajOpt planner itself
+    trajopt:
+      # Optional: Set the logging level for debugging purposes
+      logging_level: info
+
+      # Optional: You can set a timeout for the planner
+      planning_timeout: 5.0 # seconds
+
+      # Optional: Number of iterations for the optimization
+      # A higher number can lead to better results but takes longer
+      max_iter: 100
+
+      # Optional: Collision checking parameters
+      use_collision_free_start_state: true
+      collision_cost_weight: 1.0
+      
+      # Optional: You can define additional costs, constraints, or objectives
+      # for a more advanced planning problem.
+      # See TrajOpt documentation for more details.
