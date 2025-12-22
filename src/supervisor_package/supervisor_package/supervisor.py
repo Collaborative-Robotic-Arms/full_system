@@ -175,7 +175,7 @@ class AssemblySupervisor(Node):
             
         send_goal_future = client.send_goal_async(goal_msg)
         goal_handle = await send_goal_future
-        
+        rclpy.spin_until_future_complete(self, send_goal_future) # BLOCKS until done
         if not goal_handle.accepted:
             self.get_logger().info('Goal rejected')
             return False
