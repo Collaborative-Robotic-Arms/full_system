@@ -1,0 +1,306 @@
+\documentclass[15pt, a4paper]{extreport}
+
+% =========================================================
+% PACKAGES & SETUP
+% =========================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{mathptmx}       % Professional Times Roman-like font
+\usepackage[demo]{graphicx} % [demo] is for placeholders. REMOVE [demo] when you have real images.
+\usepackage{geometry}
+\usepackage{titlesec}       % For custom chapter/section styling
+\usepackage{setspace}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage[font=small,labelfont=bf]{caption} % Bold "Figure 1" labels
+\usepackage{booktabs}       % Nicer tables
+\usepackage{fancyhdr}       % For page headers/footers
+\usepackage{xcolor}         % For defining custom colors
+
+% ---------------------------------------------------------
+% PAGE LAYOUT
+% ---------------------------------------------------------
+\geometry{
+ left=25mm,
+ right=25mm,
+ top=20mm,
+ bottom=25mm,
+}
+
+% Line Spacing 
+\singlespacing
+
+% ---------------------------------------------------------
+% STYLING
+% ---------------------------------------------------------
+
+% 1. Hyperlink Colors (Professional Dark Blue)
+\definecolor{darkblue}{rgb}{0.0, 0.0, 0.55}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    filecolor=black,      
+    urlcolor=black,
+    citecolor=black,
+}
+
+% 2. Chapter Headings Style (Clean & Modern)
+\titleformat{\chapter}[display]
+  {\normalfont\bfseries\Huge} % Format
+  {\chaptertitlename\ \thechapter} % Label
+  {10pt} % Sep
+  {} % Before code
+  \titlespacing*{\chapter}{0pt}{0pt}{30pt}
+% 3. Header & Footer Setup
+\pagestyle{fancy}
+\fancyhf{} % Clear all header/footer fields
+\fancyhead[L]{\slshape \leftmark} % Left Header: Chapter Name
+\fancyhead[R]{\thepage}           % Right Header: Page Number
+\renewcommand{\headrulewidth}{0pt} % Header line thickness
+
+% Fix for plain pages (like Chapter 1 start) to still have page numbers
+\fancypagestyle{plain}{
+  \fancyhf{}
+  \fancyfoot[C]{\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+}
+
+% =========================================================
+% DOCUMENT CONTENT
+% =========================================================
+\begin{document}
+
+% ---------------------------------------------------------
+% TITLE PAGE
+% ---------------------------------------------------------
+\begin{titlepage}
+    \begin{center}
+        \vspace*{1cm}
+        
+        {\Large \textbf{Ain Shams University}}\\[0.5cm]
+        {\Large \textbf{Faculty of Engineering}}\\[0.5cm]
+        {\large \textbf{Mechatronics Engineering Department}}
+        
+        \vspace{3cm}
+        
+        % Thesis Title
+        {\Huge \textbf{Collaborative Robotic Arms}}\\[0.5cm]
+        {\Huge \textbf{Digital-Twin Enabled}}\\[1cm]
+        {\Large \textit{Graduation Project Thesis}}
+        
+        \vspace{1.5cm}
+        
+        \normalsize Submitted in partial fulfillment of the requirements for the \\
+        B.Sc. degree in Mechatronics Engineering
+        
+        \vspace{1.5cm}
+        
+        % Team Members Table
+        \textbf{Team Members:} \\[0.5cm]
+        \begin{tabular}{r @{\hspace{1cm}} l}
+            Marwan Mahmoud & Mohamed Tarek \\
+            Mariam El Sebaey & Mohamed Alaa \\
+            Omar Magdy & Ingy Ahmed \\
+            Yehia Raouf & Kareem Saleh \\
+        \end{tabular}
+        
+        \vspace{2cm}
+        
+        \textbf{Supervisors:} \\
+        Dr. Mohamed Omar \\
+        Dr. Shady Ahmed \\
+        Eng. Dina Zakaria
+
+        \vspace{1cm}
+
+        \textbf{Academic Year: 2025--2026} \\
+        \textbf{Cairo, Egypt}
+        
+    \end{center}
+\end{titlepage}
+
+% ---------------------------------------------------------
+% FRONT MATTER (Abstract, TOC)
+% ---------------------------------------------------------
+\pagenumbering{roman} % Roman numerals (i, ii, iii) for front matter
+
+% ABSTRACT
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+This thesis presents a Digital-Twin-enabled collaborative robotic assembly system integrating an ABB industrial manipulator and an AR4 robotic arm to execute efficient brick assembly through coordinated perception, grasping, handover, and placement. The proposed system combines global scene understanding from an Intel RealSense camera with local ``eye-in-hand'' sensing using an ESP32-CAM mounted on the AR4, enabling both coarse positioning and fine alignment during grasping via Image-Based Visual Servoing (IBVS). A structured state machine governs end-to-end task allocation and execution, selecting between direct assembly and cross-side handover based on brick and robot allocation logic derived from GUI/database input and global perception.
+
+\setlength{\parskip}{1em}
+To achieve accurate interaction in a shared workspace, calibration is treated as a core requirement. AR4 calibration is performed by collecting data at multiple X--Y locations at two height levels (0 mm and 50 mm) and fitting mapping functions using multiple approaches (Radial Basis Function (RBF), linear, and polynomial). Polynomial regression demonstrated superior performance and was validated using training/testing splits. Similarly, global camera calibration based on polynomial regression is applied using samples across varying X, Y, and Z coordinates to enable reliable estimation of brick world pose across the entire table. Perception is implemented through YOLOv8 segmentation for brick and feature detection, while grasp selection is addressed using a transformer-based encoder--decoder trained with both successful grasps (True Grasps) and failure/avoidance cases (False Grasps), enabling negative reinforcement to reduce unstable grasp predictions. During fine control, homography is used to map feature points between the RealSense global view and the ESP32-CAM local view, simplifying tracking and improving approach robustness.
+
+\setlength{\parskip}{1em}
+Experimental results demonstrate improved positional accuracy using polynomial calibration, effective brick detection performance using segmentation, increased grasp stability using the True/False labeling strategy, and robust end-to-end execution under a state-machine framework. The thesis concludes with limitations and future directions, including improved domain adaptation, force-aware handovers, and enhanced Digital Twin synchronization for higher fidelity planning and monitoring.
+\newpage
+
+% TABLE OF CONTENTS
+\tableofcontents
+\newpage
+\listoffigures
+\listoftables
+\newpage
+
+% ---------------------------------------------------------
+% MAIN CHAPTERS
+% ---------------------------------------------------------
+\pagenumbering{arabic} % Switch to normal numbers (1, 2, 3)
+
+% CHAPTER 1
+\chapter{Introduction}
+
+\section{Background and Motivation}
+
+Collaborative robotic systems are increasingly adopted in modern automation to improve throughput, flexibility, and safety in assembly workflows. While a single industrial robot can achieve high repeatability, multi-robot collaboration enables task decomposition, parallelism, and improved workspace coverage. However, collaboration introduces major technical challenges: accurate calibration between sensing and actuation, reliable perception under real-world conditions, robust grasp planning, and stable closed-loop control for fine alignment.Additionally, system-level logic is required to coordinate roles, manage handovers, and handle uncertainty during execution.
+
+This project addresses these challenges by enabling robust collaboration between an ABB robot and an AR4 robot for brick assembly. The system is Digital-Twin-enabled to support visualization, validation, monitoring, and structured integration between perception, planning, and execution.
+\section{Problem Statement}
+The problem addressed in this thesis is the design and implementation of a two-robot collaborative assembly system that can:
+\begin{itemize}
+    \item Detect and localize bricks in a shared workspace using global perception.
+    \item Select stable grasps and avoid unstable configurations using learned models.
+    \item Execute safe and accurate grasping using hybrid control (point control + visual servoing).
+    \item Perform robust handover from AR4 to ABB when bricks must cross workspace sides.
+    \item Maintain consistent world pose estimation across the table via calibration.
+    \item Coordinate the full workflow using a state machine with clear transitions and recovery logic.
+\end{itemize}
+
+\section{Project Objectives}
+The main objectives of the project are:
+\begin{enumerate}
+    \item Develop a Digital-Twin-enabled architecture integrating perception, decision logic, and robot execution.
+    \item Achieve accurate AR4 position correction using data-driven calibration (tested: RBF, linear, polynomial; best: polynomial).
+    \item Calibrate the global camera-to-world mapping such that brick pose can be computed reliably across workspace positions.
+    \item Implement robust object detection using YOLOv8 segmentation for bricks and relevant features.
+    \item Implement grasp detection using a transformer-based encoder-decoder trained with True Grasps and False Grasps.
+    \item Implement fine alignment for AR4 grasping using IBVS aided by homography mapping between global and local camera views.
+    \item Implement a state machine that governs setup, allocation, grasping, handover, and assembly reliably.
+\end{enumerate}
+
+\section{Project Scope}
+This thesis focuses on perception-to-action integration for collaborative assembly using two robotic arms and two camera systems (global and eye-in-hand). The scope includes calibration, detection, grasp selection, visual servoing, handover logic, and system integration under a structured execution framework.
+
+Mechanical design details, low-level ABB proprietary controller programming, and safety certification processes are considered outside the scope, except where required to ensure safe experimental operation.
+
+\section{Thesis Organization}
+The thesis is organized as follows:
+\begin{itemize}
+    \item \textbf{Chapter 2} Reviews key literature in collaborative robotics, handover, calibration, visual servoing, deep-learning-based perception, and Digital Twin integration.
+    \item \textbf{Chapter 3} Details the system architecture and methodology, including calibration, detection, grasping, visual servoing, and state-machine logic.
+    \item \textbf{Chapter 4} Presents implementation details and experimental results for calibration accuracy, perception performance, grasp prediction quality, and workflow reliability.
+    \item \textbf{Chapter 5} Concludes the thesis and proposes future enhancements.
+\end{itemize}
+
+% CHAPTER 2
+\chapter{Literature Review}
+
+\section{Collaborative Robotics and Multi-Robot Assembly}
+This section reviews foundational concepts in collaborative robots, multi-robot coordination, and task allocation strategies relevant to assembly workflows. Topics include workspace partitioning, coordination architectures, and performance factors such as cycle time, robustness. and fault recovery.
+
+\section{Robot-to-Robot Handover}
+Robot handover is a critical capability in collaborative manipulation. The literature emphasizes accurate pose estimation of the held object, coordinated motion planning, and timing constraints to avoid collisions or drops.
+
+\section{Calibration in Robotic Systems}
+Calibration links sensed coordinates to robot motion. This work relates to both robot position correction (data-driven mapping) and camera-to-world calibration for pose estimation.
+\section{Deep Learning for object detection and segmentation in robotics}
+Deep perception methods enable robust detection under varying conditions. Segmentation is particularly useful when precise object boundaries and orientation cues are required for manipulation.
+\section{Grasp Detection and Learning}
+Modern grasp detection extends beyond classical heauristics by learning grasp quality from data.
+\section{Visual Servoing (IBVS) and Homography-Based Mapping}
+Visual servoing provides closed-loop correction using image features. IBVS is attractive due to reduced dependence on full 3D reconstruction,while homography enables mapping betweeen camera views when planar assumptions are valid.
+% CHAPTER 3
+\chapter{System Design and Methodology}
+
+\section{System Overview and Architecture}
+The proposed system integrates two robotic arms (ABB IRB120 and ANNIN AR4) operating in a shared workspace to perform brick assembly tasks. A global Intel RealSense camera provides overall workspace perception, while an AR4-mounted ESP32-CAM mounted as an eye-in-hand camera to enable local visual feedback during final approach and grasping. A digital twin mirrors the operational state for monitoring and validation, while a state machine coordinates the fall workflow from allocation to handover and assembly.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{placeholder_architecture}
+    \caption{System Architecture Diagram showing the integration of ABB, AR4, and perception modules.}
+    \label{fig:sys_arch}
+\end{figure}
+\section{Hardware Components}
+\section{Software Architecture}
+\section{AR4 Robot Calibration (Data-Driven Correction)}
+To correct AR4 positioning errors, calibration data was collected at multiple X-Y coordinates for two height levels (0 mm and 50 mm).
+
+\subsection{Tested Mapping Approaches}
+Three mapping approaches were evaluated:
+\begin{enumerate}
+    \item Linear relations (baseline).
+    \item Radial Basis Function (RBF) regression.
+    \item Polynomial regression (Selected).
+\end{enumerate}
+
+\subsection{Polynomial Regression Method}
+Polynomial regression yielded the best performance. The mapping function estimates corrected pose components as a polynomial function of measured or commanded inputs.
+
+\begin{equation}
+    \mathrm{Corrected\_X} = f_{poly}(X_{cmd}, Y_{cmd}, Z_{level})
+\end{equation}
+\subsection{Validation Metrics}
+Performance was evaluated using:
+\begin{itemize}
+    \item Root Mean Square Error (RMSE) for each axis.
+    \item Maximum absolute error.
+    \item Test-set generalization error.
+    \item Residual plots to identify systematic bias.
+\end{itemize}
+
+\section{Visual Servoing (Fine Control)}
+\subsection{IBVS Control Law}
+In IBVS, the control command is computed from the image feature error $e=s-s^{*}$. A standard formulation uses an interaction matrix $L(s)$:
+\begin{equation}
+    v = -\lambda \cdot L^{+} \cdot e
+\end{equation}
+where $v$ is the commanded camera/end-effector velocity, $\lambda$ is a gain, and $L^{+}$ is the pseudo-inverse of the interaction matrix.
+
+% CHAPTER 4
+\chapter{Implementation and Results}
+
+\section{AR4 Calibration Results}
+Polynomial regression produced the best calibration results among the tested RBF, linear, and polynomial approaches.
+
+\begin{table}[h]
+    \centering
+    \caption{Calibration Error Metrics}
+    \begin{tabular}{l c c}
+        \toprule
+        \textbf{Metric} & \textbf{Training Set} & \textbf{Testing Set} \\
+        \midrule
+        RMSE X & [Value] mm & [Value] mm \\
+        RMSE Y & [Value] mm & [Value] mm \\
+        Max Error & - & [Value] mm \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:calibration}
+\end{table}
+
+\section{Discussion}
+Polynomial calibration improves repeatability and reduces systematic bias versus simpler mappings. True/False grasp labeling improves stability by training the model to reject risky grasps.
+
+% CHAPTER 5
+\chapter{Conclusion and Future Work}
+
+\section{Conclusion}
+This thesis presented a Digital-Twin-enabled collaborative robotic assembly system. Data-driven calibration using polynomial regression improved accuracy. YOLOv8 and transformer-based grasp models enabled reliable detection and grasping.
+
+\section{Future Work}
+\begin{enumerate}
+    \item Force-aware grasping and handover.
+    \item 6-DoF pose refinement.
+    \item Formal verification of the state machine.
+\end{enumerate}
+
+% REFERENCES
+\begin{thebibliography}{9}
+    \bibitem{ref1}
+    Author Name, \textit{Title of the Paper}, Journal Name, Year.
+\end{thebibliography}
+
+\end{document}
