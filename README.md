@@ -39,5 +39,4 @@ This project is built using LaTeX. To compile the PDF locally:
 
 ## 📂 Structure
 * **`Thesis.tex`**: The main entry point for the document.
-* **`images/`**: (Recommended) Folder containing all figures and diagrams.
-* **`references.bib`**: (Recommended) File containing bibliography citations.
+* **`images/`**: Folder containing all figures and diagrams.
