@@ -1,8 +1,0 @@
-# Goal
-string object_id
----
-# Result
-bool success
----
-# Feedback
-float32 alignment_error

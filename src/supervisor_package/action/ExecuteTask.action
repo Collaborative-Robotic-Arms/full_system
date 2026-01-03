@@ -1,9 +1,0 @@
-string task_type
-string target_arm
-geometry_msgs/Pose target_pose
----
-bool success
-string error_message
----
-float32 progress
-string current_status
