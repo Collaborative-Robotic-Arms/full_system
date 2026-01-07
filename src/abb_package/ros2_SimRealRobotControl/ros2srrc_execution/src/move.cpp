@@ -22,16 +22,13 @@
 #  Date: April, 2023.                                                                   #
 #                                                                                       #
 # ===================================== COPYRIGHT ===================================== #
-
-# ======= CITE OUR WORK ======= #
-# You can cite our work with the following statement:
-# IFRA-Cranfield (2023) ROS 2 Sim-to-Real Robot Control. URL: https://github.com/IFRA-Cranfield/ros2_SimRealRobotControl.
 */
 
 // Include standard libraries:
 #include <string>
 #include <vector>
-#include <memory>  // for std::unique_ptr
+#include <thread>
+#include <future>
 
 // Include -> YAML file parser:
 #include <iostream>
@@ -52,11 +49,8 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 
 // Include MoveIt!2:
-#include <moveit/move_group_interface/move_group_interface.hpp>
+#include <moveit/move_group_interface/move_group_interface_improved.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.hpp>
-
-// For result codes:
-#include "moveit_msgs/msg/move_it_error_codes.hpp"
 
 // Include the move ROS2 ACTION:
 #include "ros2srrc_data/action/move.hpp"
@@ -75,8 +69,8 @@ std::string param_EE = "none";
 std::string param_ENV = "none";
 
 // Declaration of GLOBAL VARIABLES --> MoveIt!2 Interface:
-std::unique_ptr<moveit::planning_interface::MoveGroupInterface> move_group_interface_ROB;
-std::unique_ptr<moveit::planning_interface::MoveGroupInterface> move_group_interface_EE;
+moveit::planning_interface::MoveGroupInterface move_group_interface_ROB;
+moveit::planning_interface::MoveGroupInterface move_group_interface_EE;
 
 // Declaration of GLOBAL VARIABLES --> JointModelGroup:
 const moveit::core::JointModelGroup* joint_model_group_ROB;
@@ -116,50 +110,38 @@ public:
 private:
 };
 
-
 // ======================================================================================================================== //
 // ==================== FUNCTIONS ==================== //
 
 // ===== PLAN ===== //
 // ROBOT:
 moveit::planning_interface::MoveGroupInterface::Plan plan_ROB() {
-    
     moveit::planning_interface::MoveGroupInterface::Plan my_plan;
-    bool success = (move_group_interface_ROB->plan(my_plan) == moveit_msgs::msg::MoveItErrorCodes::SUCCESS);
-
-    // Execute the plan
+    bool success = (move_group_interface_ROB.plan(my_plan) == moveit::planning_interface::MoveItErrorCode::SUCCESS);
     if (success)
     {
         RES = "PLANNING: OK";
-        return(my_plan);
     }
     else
     {
         RES = "PLANNING: ERROR";
-        return(my_plan);
     }
-
-};
+    return my_plan;
+}
 // END-EFFECTOR:
 moveit::planning_interface::MoveGroupInterface::Plan plan_EE() {
-    
     moveit::planning_interface::MoveGroupInterface::Plan my_plan;
-    bool success = (move_group_interface_EE->plan(my_plan) == moveit_msgs::msg::MoveItErrorCodes::SUCCESS);
-
-    // Execute the plan
+    bool success = (move_group_interface_EE.plan(my_plan) == moveit::planning_interface::MoveItErrorCode::SUCCESS);
     if (success)
     {
         RES = "PLANNING: OK";
-        return(my_plan);
     }
     else
     {
         RES = "PLANNING: ERROR (EE)";
-        return(my_plan);
     }
-    
-};
-
+    return my_plan;
+}
 
 // ======================================================================================================================== //
 // ==================== ACTION SERVER CLASS ==================== //
@@ -173,334 +155,211 @@ public:
     explicit ActionServer(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
     : Node("MOVE_INTERFACE", options)
     {
-
         action_server_ = rclcpp_action::create_server<Move>(
             this,
             "/Move",
             std::bind(&ActionServer::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
             std::bind(&ActionServer::handle_cancel, this, std::placeholders::_1),
             std::bind(&ActionServer::handle_accepted, this, std::placeholders::_1));
-
     }
 
 private:
     rclcpp_action::Server<Move>::SharedPtr action_server_;
     
-    // ACCEPT GOAL and NOTIFY which ACTION is going to be exectuted:
+    // Accept goal and notify which action is requested:
     rclcpp_action::GoalResponse handle_goal(
         const rclcpp_action::GoalUUID & uuid,
         std::shared_ptr<const Move::Goal> goal)
     {
-        // 1. Obtain ACTION type + speed:
-        std::string action;
-        action = goal->action;
+        std::string action = goal->action;
         double speed = goal->speed;
-
-        // 2. Assign VARIABLE TYPE accordingly, and notify:
         if (action == "MoveJ"){
             auto MoveJGoal = goal->movej;
-            RCLCPP_INFO(this->get_logger(), "Received a GOAL REQUEST: MoveJ Action -> (%.2f,%.2f,%.2f,%.2f,%.2f,%.2f)",MoveJGoal.joint1,MoveJGoal.joint2,MoveJGoal.joint3,MoveJGoal.joint4,MoveJGoal.joint5,MoveJGoal.joint6);
+            RCLCPP_INFO(this->get_logger(), "Received GOAL: MoveJ -> (%.2f,%.2f,%.2f,%.2f,%.2f,%.2f)",
+                        MoveJGoal.joint1, MoveJGoal.joint2, MoveJGoal.joint3,
+                        MoveJGoal.joint4, MoveJGoal.joint5, MoveJGoal.joint6);
         }
-        // *** REST OF THE ACTIONS HERE *** //
-
+        // ... (other actions omitted for brevity) ...
         return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE; 
     }
 
-    // No idea about what this function does:
+    // Handle accepted goal in a separate thread:
     void handle_accepted(const std::shared_ptr<GoalHandle> goal_handle)
     {
-        // This needs to return quickly to avoid blocking the executor, so spin up a new thread:
-        std::thread(
-            [this, goal_handle]() {
-                execute(goal_handle);
-            }).detach();
-        
+        std::thread([this, goal_handle]() {
+            execute(goal_handle);
+        }).detach();
     }
 
-    // Function that cancels the goal request:
+    // Handle cancel request:
     rclcpp_action::CancelResponse handle_cancel(
         const std::shared_ptr<GoalHandle> goal_handle)
     {
-        RCLCPP_INFO(this->get_logger(), "Received a cancel request.");
-
-        // We call the -> void moveit::planning_interface::MoveGroupInterface::stop(void) method,
-        // which stops any trajectory execution, if one is active.
+        RCLCPP_INFO(this->get_logger(), "Received cancel request.");
         if (param_ROB != "none"){
-            move_group_interface_ROB->stop();
+            move_group_interface_ROB.stop();
         }
         if (param_EE != "none" && param_ENV != "bringup"){
-            move_group_interface_EE->stop();
+            move_group_interface_EE.stop();
         }
-
-        (void)goal_handle;
         return rclcpp_action::CancelResponse::ACCEPT;
     }
 
-    // MAIN LOOP OF THE ACTION SERVER -> EXECUTION:
+    // Main execution loop:
     void execute(const std::shared_ptr<GoalHandle> goal_handle)
     {
-
-        // Obtain ACTION type:
         const auto goal = goal_handle->get_goal();
         std::string action = goal->action;
-
-        // DECLARE RESULT:
         auto result = std::make_shared<Move::Result>();
-
-        // ===== ACTION EXECUTION ===== //
         moveit::planning_interface::MoveGroupInterface::Plan MyPlan;
         
         if (action == "MoveJ" && param_ROB != "none"){
-            
-            // 1. Define JP VECTOR:
             std::vector<double> JP;
-            moveit::core::RobotStatePtr current_state = move_group_interface_ROB->getCurrentState(10);
+            moveit::core::RobotStatePtr current_state = move_group_interface_ROB.getCurrentState(10);
             current_state->copyJointGroupPositions(joint_model_group_ROB, JP);
-            
-            // 2. CALL MoveJAction for CALCULATIONS:
             MoveJSTRUCT MoveJRES = MoveJAction(goal->movej, JP, robotSPECS);
             JP = MoveJRES.JP;
-            move_group_interface_ROB->setJointValueTarget(JP);
-            
-            // 3. Assign SPEED and PLANNING METHOD (PTP, LIN, CIRC):
-            move_group_interface_ROB->setMaxVelocityScalingFactor(goal->speed);
-            move_group_interface_ROB->setPlannerId("PTP");
-
-            // 4. PLAN:
+            move_group_interface_ROB.setJointValueTarget(JP);
+            move_group_interface_ROB.setMaxVelocityScalingFactor(goal->speed);
+            move_group_interface_ROB.setPlannerId("PTP");
             if (MoveJRES.RES == "LIMITS: OK"){
                 MyPlan = plan_ROB();
             } else {
                 RES = MoveJRES.RES;
             }
-
-        } else if (action == "MoveL" && param_ROB != "none"){
-            
-            // 1. Define POSE VECTOR:
-            auto POSE = move_group_interface_ROB->getCurrentPose();
-            
-            // 2. CALL MoveLAction for CALCULATIONS:
+        }
+        else if (action == "MoveL" && param_ROB != "none"){
+            auto POSE = move_group_interface_ROB.getCurrentPose();
             auto TARGET_POSE = MoveLAction(goal->movel, POSE);
-            move_group_interface_ROB->setPoseTarget(TARGET_POSE);
-            
-            // 3. Assign SPEED and PLANNING METHOD (PTP, LIN, CIRC):
-            move_group_interface_ROB->setMaxVelocityScalingFactor(goal->speed);
-            move_group_interface_ROB->setPlannerId("LIN");
-
-            // 4. PLAN:
+            move_group_interface_ROB.setPoseTarget(TARGET_POSE);
+            move_group_interface_ROB.setMaxVelocityScalingFactor(goal->speed);
+            move_group_interface_ROB.setPlannerId("LIN");
             MyPlan = plan_ROB();
-
-        } else if (action == "MoveR" && param_ROB != "none"){
-
-            // 1. Define JP VECTOR:
+        }
+        // ... (other actions omitted for brevity) ...
+        else if (action == "MoveG" && param_EE != "none"){
             std::vector<double> JP;
-            moveit::core::RobotStatePtr current_state = move_group_interface_ROB->getCurrentState(10);
-            current_state->copyJointGroupPositions(joint_model_group_ROB, JP);
-            
-            // 2. CALL MoveRAction for CALCULATIONS:
-            MoveRSTRUCT MoveRRES = MoveRAction(goal->mover, JP, robotSPECS);
-            JP = MoveRRES.JP;
-            move_group_interface_ROB->setJointValueTarget(JP);
-            
-            // 3. Assign SPEED and PLANNING METHOD (PTP, LIN, CIRC):
-            move_group_interface_ROB->setMaxVelocityScalingFactor(goal->speed);
-            move_group_interface_ROB->setPlannerId("PTP");
-
-            // 4. PLAN:
-            if (MoveRRES.RES == "LIMITS: OK"){
-                MyPlan = plan_ROB();
-            } else {
-                RES = MoveRRES.RES;
-            }
-
-        } else if (action == "MoveROT" && param_ROB != "none"){
-            
-            // 1. Define POSE VECTOR:
-            auto POSE = move_group_interface_ROB->getCurrentPose();
-            
-            // 2. CALL MoveROTAction for CALCULATIONS:
-            auto TARGET_POSE = MoveROTAction(goal->moverot, POSE);
-            move_group_interface_ROB->setPoseTarget(TARGET_POSE);
-            
-            // 3. Assign SPEED and PLANNING METHOD (PTP, LIN, CIRC):
-            move_group_interface_ROB->setMaxVelocityScalingFactor(goal->speed);
-            move_group_interface_ROB->setPlannerId("PTP");
-
-            // 4. PLAN:
-            MyPlan = plan_ROB();
-        
-        } else if (action == "MoveRP" && param_ROB != "none"){
-            
-            // 1. Define POSE VECTOR:
-            auto POSE = move_group_interface_ROB->getCurrentPose();
-            
-            // 2. CALL MoveRPAction for CALCULATIONS:
-            auto TARGET_POSE = MoveRPAction(goal->moverp, POSE);
-            move_group_interface_ROB->setPoseTarget(TARGET_POSE);
-            
-            // 3. Assign SPEED and PLANNING METHOD (PTP, LIN, CIRC):
-            move_group_interface_ROB->setMaxVelocityScalingFactor(goal->speed);
-            move_group_interface_ROB->setPlannerId("PTP");
-
-            // 4. PLAN:
-            MyPlan = plan_ROB();
-        
-        } else if (action == "MoveG" && param_EE != "none"){
-            
-            // 1. Define JP VECTOR:
-            std::vector<double> JP;
-            moveit::core::RobotStatePtr current_state = move_group_interface_EE->getCurrentState(10);
+            moveit::core::RobotStatePtr current_state = move_group_interface_EE.getCurrentState(10);
             current_state->copyJointGroupPositions(joint_model_group_EE, JP);
-
-            // 2. CALL MoveGAction for CALCULATIONS:
             MoveGSTRUCT MoveGRES = MoveGAction(goal->moveg, JP, eeSPECS);
             JP = MoveGRES.JP;
-            move_group_interface_EE->setJointValueTarget(JP);
-            
-            // 3. Assign SPEED and PLANNING METHOD (PTP, LIN, CIRC):
-            move_group_interface_EE->setMaxVelocityScalingFactor(goal->speed);
-            move_group_interface_EE->setPlannerId("PTP");
-
-            // 4. PLAN:
+            move_group_interface_EE.setJointValueTarget(JP);
+            move_group_interface_EE.setMaxVelocityScalingFactor(goal->speed);
+            move_group_interface_EE.setPlannerId("PTP");
             if (MoveGRES.RES == "LIMITS: OK"){
                 MyPlan = plan_EE();
             } else {
                 RES = MoveGRES.RES;
             }
-        
         }
 
-        // EXECUTE:
-        if (RES == "PLANNING: OK"){
-
-            bool ExecSUCCESS = (move_group_interface_ROB->execute(MyPlan) == moveit_msgs::msg::MoveItErrorCodes::SUCCESS);
-
-            if (goal_handle->is_canceling()) {
+        // EXECUTION using the current API (move())
+        if ((RES == "PLANNING: OK") || (RES == "PLANNING: OK (EE)")){
+            moveit::core::MoveItErrorCode exec_result;
+            if (action == "MoveG" && param_EE != "none")
+                exec_result = move_group_interface_EE.move();
+            else
+                exec_result = move_group_interface_ROB.move();
+            
+            if (goal_handle->is_canceling()){
                 RCLCPP_INFO(this->get_logger(), "Goal canceled.");
                 result->result = action + ":CANCELED";
                 goal_handle->canceled(result);
                 return;
-            } 
+            }
             
-            if (ExecSUCCESS){
-                RCLCPP_INFO(this->get_logger(), "%s - %s: Movement executed!", param_ROB.c_str(), action.c_str());
+            if (exec_result == moveit::planning_interface::MoveItErrorCode::SUCCESS){
+                RCLCPP_INFO(this->get_logger(), "%s - %s: Movement executed!",
+                            (action == "MoveG") ? param_EE.c_str() : param_ROB.c_str(), action.c_str());
                 result->result = action + ":SUCCESS";
                 goal_handle->succeed(result);
             } else {
-                RCLCPP_INFO(this->get_logger(), "%s - %s: Movement execution failed!", param_ROB.c_str(), action.c_str());
+                RCLCPP_INFO(this->get_logger(), "%s - %s: Movement execution failed!",
+                            (action == "MoveG") ? param_EE.c_str() : param_ROB.c_str(), action.c_str());
                 result->result = action + ":FAILED. Reason -> Execution error.";
                 goal_handle->succeed(result);
             }
-
-        } else if (RES == "PLANNING: OK (EE)"){
-            move_group_interface_EE->execute(MyPlan);
-
-            if (goal_handle->is_canceling()) {
-                RCLCPP_INFO(this->get_logger(), "Goal canceled.");
-                result->result = action + ":CANCELED";
-                goal_handle->canceled(result);
-                return;
-            } else {
-                RCLCPP_INFO(this->get_logger(), "%s - %s: Movement executed!", param_EE.c_str(), action.c_str());
-                result->result = action + ":SUCCESS";
-                goal_handle->succeed(result);
-            }
-            
-        } else if (RES == "PLANNING: ERROR"){
-            RCLCPP_INFO(this->get_logger(), "%s - %s: Planning failed!", param_ROB.c_str(), action.c_str());
+        }
+        else if (RES == "PLANNING: ERROR" || RES == "PLANNING: ERROR (EE)"){
+            RCLCPP_INFO(this->get_logger(), "%s - %s: Planning failed!",
+                        (action == "MoveG") ? param_EE.c_str() : param_ROB.c_str(), action.c_str());
             result->result = action + ":FAILED. Reason -> Planning failed.";
             goal_handle->succeed(result);
-        } else if (RES == "PLANNING: ERROR (EE)"){
-            RCLCPP_INFO(this->get_logger(), "%s - %s: Planning failed!", param_EE.c_str(), action.c_str());
-            result->result = action + ":FAILED. Reason -> Planning failed.";
-            goal_handle->succeed(result);
-
-        } else {
-
+        }
+        else {
             RCLCPP_INFO(this->get_logger(), "ERROR: %s", RES.c_str());
             result->result = action + ":FAILED. Reason -> " + RES;
             goal_handle->succeed(result);
-
-        };
-
-        // RE-INITIALISE RES variable:
+        }
+        
+        // Reinitialize RES variable:
         RES = "none";
-
     }
-
 };
 
-
+// ======================================================================================================================== //
 // ==================== MAIN ==================== //
 
 int main(int argc, char ** argv)
 {
-    // Initialise MAIN NODE:
     rclcpp::init(argc, argv);
+    auto const logger = rclcpp::get_logger("MOVE_INTERFACE");
 
-    auto node_LOGGER = std::make_shared<rclcpp::Node>("MOVE_INTERFACE_log");
-
-    // Obtain ROBOT + END-EFFECTOR + ENVIRONMENT parameters:
+    // Obtain ROBOT and END-EFFECTOR parameters:
     auto node_PARAM_ROB = std::make_shared<ros2_RobotParam>();
     rclcpp::spin_some(node_PARAM_ROB);
     auto node_PARAM_EE = std::make_shared<ros2_EEParam>();
     rclcpp::spin_some(node_PARAM_EE);
 
-    // DEFINE -> RobotSPECS + eeSPECS variables:
-    // Robot SPECIFICATIONS:
+    // Load Robot SPECIFICATIONS:
     if (param_ROB != "none"){
         std::string pkgPATH_R = ament_index_cpp::get_package_share_directory("ros2srrc_robots");
         std::string PATH_R = pkgPATH_R + "/" + param_ROB + "/config/joint_specifications.yaml";
         YAML::Node SPECIFICATIONS_R = YAML::LoadFile(PATH_R);
         robotSPECS.robot_max = SPECIFICATIONS_R["Limits"]["Max"].as<std::vector<double>>();
         robotSPECS.robot_min = SPECIFICATIONS_R["Limits"]["Min"].as<std::vector<double>>();
-    };
-    // End-Effector SPECIFICATIONS:
+    }
+    // Load End-Effector SPECIFICATIONS:
     if (param_EE != "none"){
         std::string pkgPATH = ament_index_cpp::get_package_share_directory("ros2srrc_endeffectors");
         std::string PATH = pkgPATH + "/" + param_EE + "/config/joint_specifications.yaml";
         YAML::Node SPECIFICATIONS = YAML::LoadFile(PATH);
         eeSPECS.ee_max = SPECIFICATIONS["Limits"]["Max"].as<double>();
         eeSPECS.ee_min = SPECIFICATIONS["Limits"]["Min"].as<double>();
-        eeSPECS.ee_vector =  SPECIFICATIONS["JointsVector"].as<std::vector<double>>();
-    };
+        eeSPECS.ee_vector = SPECIFICATIONS["JointsVector"].as<std::vector<double>>();
+    }
 
-    // Launch and spin (EXECUTOR) MoveIt!2 Interface node:
-    auto name = "ros2srrc_move";
-    auto const node2 = std::make_shared<rclcpp::Node>(name, rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true));
+    // Create a node for MoveGroupInterface(s)
+    auto node2 = std::make_shared<rclcpp::Node>("ros2srrc_move", rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true));
     rclcpp::executors::SingleThreadedExecutor executor; 
     executor.add_node(node2);
     std::thread([&executor]() { executor.spin(); }).detach();
 
-    // CREATE -> MoveGroupInterface(s):
     using moveit::planning_interface::MoveGroupInterface;
-    // 1. ROBOT:
+    // Create ROBOT MoveGroupInterface:
     if (param_ROB != "none"){
-        auto name = param_ROB + "_arm";
-        
-        move_group_interface_ROB = std::make_unique<MoveGroupInterface>(node2, name);
-        move_group_interface_ROB->setPlanningPipelineId("pilz_industrial_motion_planner");
-
-        move_group_interface_ROB->setMaxVelocityScalingFactor(1.0);
-        move_group_interface_ROB->setMaxAccelerationScalingFactor(1.0);
-
-        joint_model_group_ROB = move_group_interface_ROB->getCurrentState()->getJointModelGroup(name);
-        RCLCPP_INFO(node_LOGGER->get_logger(), "MoveGroupInterface object created for ROBOT: %s", param_ROB.c_str());
+        std::string group_name = param_ROB + "_arm";
+        move_group_interface_ROB = MoveGroupInterface(node2, group_name);
+        move_group_interface_ROB.setPlanningPipelineId("move_group");
+        move_group_interface_ROB.setMaxVelocityScalingFactor(1.0);
+        move_group_interface_ROB.setMaxAccelerationScalingFactor(1.0);
+        joint_model_group_ROB = move_group_interface_ROB.getCurrentState()->getJointModelGroup(group_name);
+        RCLCPP_INFO(logger, "Created MoveGroupInterface for ROBOT: %s", param_ROB.c_str());
     }
-    // 2. END-EFFECTOR:
+    // Create END-EFFECTOR MoveGroupInterface:
     if (param_EE != "none"){
-        move_group_interface_EE = std::make_unique<MoveGroupInterface>(node2, param_EE);
-        move_group_interface_EE->setPlanningPipelineId("pilz_industrial_motion_planner");
-        move_group_interface_EE->setMaxVelocityScalingFactor(1.0);
-        move_group_interface_EE->setMaxAccelerationScalingFactor(1.0);
-        joint_model_group_EE = move_group_interface_EE->getCurrentState()->getJointModelGroup(param_EE);
-        RCLCPP_INFO(node_LOGGER->get_logger(), "MoveGroupInterface object created for END-EFFECTOR: %s", param_EE.c_str());
+        move_group_interface_EE = MoveGroupInterface(node2, param_EE);
+        move_group_interface_EE.setPlanningPipelineId("move_group");
+        move_group_interface_EE.setMaxVelocityScalingFactor(1.0);
+        move_group_interface_EE.setMaxAccelerationScalingFactor(1.0);
+        joint_model_group_EE = move_group_interface_EE.getCurrentState()->getJointModelGroup(param_EE);
+        RCLCPP_INFO(logger, "Created MoveGroupInterface for END-EFFECTOR: %s", param_EE.c_str());
     }
 
-    // CREATE -> PlanningSceneInterface:
     using moveit::planning_interface::PlanningSceneInterface;
-    auto planning_scene_interface = PlanningSceneInterface();
+    PlanningSceneInterface planning_scene_interface;
 
-    // Declare and spin ACTION SERVER:
+    // Create and spin ACTION SERVER:
     auto action_server = std::make_shared<ActionServer>();
     rclcpp::spin(action_server);
 

@@ -39,8 +39,9 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 
 // Include MoveIt!2:
-#include <moveit/move_group_interface/move_group_interface.hpp>
+#include <moveit/move_group_interface/move_group_interface_improved.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.hpp>
+
 
 // Include the move ROS2 ACTION:
 #include "ros2srrc_data/action/move.hpp"
@@ -72,8 +73,8 @@ MoveGSTRUCT MoveGAction (double VAL, std::vector<double> JP, ros2srrc_data::msg:
     double GP = (GPMax - GPMin) * (VAL/100.0);
 
     // 3. SET GRIPPER POSE vector:
-    for (std::size_t i = 0; i < JP.size(); ++i){
-        JP[i] = GP * JointsVector[i];
+    for (size_t i=0; i<JP.size(); i++){
+        JP[i] = GP*JointsVector[i];
     };
 
     RESULT.RES = "LIMITS: OK";

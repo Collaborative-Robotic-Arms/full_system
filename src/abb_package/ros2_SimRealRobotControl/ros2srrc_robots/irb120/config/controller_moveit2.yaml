@@ -1,7 +1,14 @@
-controller_names:
-  - joint_trajectory_controller
+trajectory_execution:
+  allowed_execution_duration_scaling: 1.2
+  allowed_goal_duration_margin: 0.5
+  allowed_start_tolerance: 0.01
 
-joint_trajectory_controller:
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+controller_names:
+  - irb120_controller
+
+irb120_controller:
   action_ns: follow_joint_trajectory
   type: FollowJointTrajectory
   default: true

@@ -1,0 +1,11 @@
+# Request to set the gripper state
+# gripper_signal_name: The name of the digital output signal on the robot (e.g., "do_egp64_grip")
+# open: True to open the gripper, False to close it
+string gripper_signal_name
+bool open
+---
+# Response
+# success: True if the command was sent successfully, False otherwise
+# message: A descriptive message about the result
+bool success
+string message

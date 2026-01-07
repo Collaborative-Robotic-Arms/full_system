@@ -1,7 +1,8 @@
+#include <chrono>
+#include <memory>
 using namespace std::chrono_literals;
 
 
-#include <chrono>
 #include <memory>
 #include <string>
 #include <iostream> // For std::cin, std::cout
@@ -12,7 +13,6 @@ using namespace std::chrono_literals;
 #include <abb_robot_msgs/msg/rapid_symbol_path.hpp>
 #include <abb_robot_msgs/msg/service_responses.hpp>
 
-using namespace std::chrono_literals;
 
 class EndEffectorClient : public rclcpp::Node
 {
@@ -63,7 +63,6 @@ public:
                 request->path.symbol.c_str(),
                 request->value ? "true" : "false");
 
-    // Send the asynchronous service request
     auto result_future = client_->async_send_request(request);
 
     // Using a callback for the future to avoid blocking the main thread

@@ -138,7 +138,7 @@ def generate_launch_description():
         
     # CHECK if -> PACKAGE EXISTS, and GET PATH:
     try:
-        PKG_PATH = get_package_share_directory(PACKAGE_NAME)
+        PKG_PATH = get_package_share_directory(PACKAGE_NAME + "_gazebo")
     except PackageNotFoundError:
         print("")
         print("ERROR: The defined ROS 2 Package was not found. Please try again.")
@@ -162,39 +162,26 @@ def generate_launch_description():
 
     # ========== CELL INFORMATION ========== #
     print("")
-    print("===== GAZEBO: Robot Simulation + MoveIt!2 Framework (" + PACKAGE_NAME + ") =====")
+    print("===== GAZEBO: Robot Simulation + MoveIt!2 Framework (" + PACKAGE_NAME + "_moveit2) =====")
     print("Robot configuration:")
     print(CONFIGURATION["ID"] + " -> " + CONFIGURATION["Name"])
     print("")
     
     # ***** GAZEBO ***** #   
-    # DECLARE GAZEBO WORLD file:
-    world_gz = os.path.join(
-        get_package_share_directory('ros2srrc_gz'),
+    # DECLARE Gazebo WORLD file:
+    robot_gazebo = os.path.join(
+        get_package_share_directory(PACKAGE_NAME + '_gazebo'),
         'worlds',
-        'ros2srrc_gz.sdf')
+        PACKAGE_NAME + '.world')
     # DECLARE Gazebo LAUNCH file:
-    gzSIM = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            [os.path.join(get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')]
-        ),
-        launch_arguments={
-            'gz_args': f'-r -v 1 "{world_gz}"',
-            'on_exit_shutdown': 'true'
-        }.items(),
-    )
-
-    # ROS 2 Gz Clock:
-    clock_bridge = Node(
-        package="ros_gz_bridge",
-        executable="parameter_bridge",
-        arguments=["/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"],
-        output="screen",
-    )
+    gazebo = IncludeLaunchDescription(
+                PythonLaunchDescriptionSource([os.path.join(get_package_share_directory('gazebo_ros'), 'launch'), '/gazebo.launch.py']),
+                launch_arguments={'world': robot_gazebo}.items(),
+            )
 
     # ***** ROBOT DESCRIPTION ***** #
     # Robot Description file package:
-    robot_description_path = os.path.join(get_package_share_directory(PACKAGE_NAME))
+    robot_description_path = os.path.join(get_package_share_directory(PACKAGE_NAME + '_gazebo'))
     # ROBOT urdf file path:
     xacro_file = os.path.join(robot_description_path,'urdf',CONFIGURATION["urdf"])
     # Generate ROBOT_DESCRIPTION variable:
@@ -237,17 +224,9 @@ def generate_launch_description():
     )
 
     # SPAWN ROBOT TO GAZEBO:
-    spawn_entity = Node(
-        package='ros_gz_sim', 
-        executable='create',
-        arguments=[
-            '-topic', 'robot_description',
-            '-name', CONFIGURATION["rob"],
-            '-x', '0',
-            '-y', '0',
-            '-z', '0',
-        ],
-        output='both')
+    spawn_entity = Node(package='gazebo_ros', executable='spawn_entity.py',
+                        arguments=['-topic', 'robot_description', '-entity', CONFIGURATION["rob"]],
+                        output='both')
 
     # ***** CONTROLLERS ***** #
     # Joint STATE BROADCASTER:
@@ -277,32 +256,14 @@ def generate_launch_description():
                 )
             )
 
-    # SpawnEntity service bridge for world "ros2srrc_GzWorld":
-    gzSERVICE_bridge = Node(
-        package='ros_gz_bridge',
-        executable='parameter_bridge',
-        name='gz_spawn_service_bridge',
-        arguments=['/world/ros2srrc_GzWorld/create@ros_gz_interfaces/srv/SpawnEntity'],
-        output='screen'
-    )
-
-    # Gazebo TOPIC BRIDGE for the camera:
-    gzTOPIC_bridge = Node(
-        package='ros_gz_image',
-        executable='image_bridge',
-        name='camera_image_bridge',
-        arguments=['/camera/image_raw'],  # CAMERA TOPIC.
-        output='screen'
-    )
-
     # *********************** MoveIt!2 *********************** #   
 
     # *** PLANNING CONTEXT *** #
     # Robot description, SRDF:
     if (EE == "false"):
-        robot_description_semantic_config = load_file("ros2srrc_moveit", "config/" + CONFIGURATION["rob"] + ".srdf")
+        robot_description_semantic_config = load_file(PACKAGE_NAME + "_moveit2", "config/" + CONFIGURATION["rob"] + ".srdf")
     else:
-        robot_description_semantic_config = load_file("ros2srrc_moveit", "config/" + CONFIGURATION["rob"] + "_" + CONFIGURATION["ee"] + ".srdf")
+        robot_description_semantic_config = load_file(PACKAGE_NAME + "_moveit2", "config/" + CONFIGURATION["rob"] + CONFIGURATION["ee"] + ".srdf")
     
     robot_description_semantic = {"robot_description_semantic": robot_description_semantic_config}
 
@@ -310,7 +271,7 @@ def generate_launch_description():
     kinematics_yaml = load_yaml("ros2srrc_robots", CONFIGURATION["rob"] + "/config/kinematics.yaml")
     robot_description_kinematics = {"robot_description_kinematics": kinematics_yaml}
 
-    # joint_limits.yaml file & pilz_cartesian_limits.yaml file:
+    # joint_limits.yaml file:
     if (EE == "false") or (EE == "true-NOctr"):
         joint_limits_yaml = load_yaml("ros2srrc_robots", CONFIGURATION["rob"] + "/config/joint_limits.yaml")
     else:
@@ -319,30 +280,19 @@ def generate_launch_description():
         joint_limits_yaml = {}
         joint_limits_yaml["joint_limits"] = YAML_ROB | YAML_EE
     
-    pilz_cartesian_limits_yaml = load_yaml("ros2srrc_robots", CONFIGURATION["rob"] + "/config/pilz_cartesian_limits.yaml")
-
-    robot_description_planning = {
-        'robot_description_planning': {
-            **(joint_limits_yaml or {}),          
-            **(pilz_cartesian_limits_yaml or {}), 
-        }
-    }
+    joint_limits = {'robot_description_planning': joint_limits_yaml}
 
     # pilz_planning_pipeline_config.yaml file:
-    planning_pipelines = {
-        "planning_pipelines": ["pilz_industrial_motion_planner"],  # default-only list is fine
-        "planning_pipeline": "pilz_industrial_motion_planner",     # legacy top-level; harmless
-    }
-
-    # Namespace block for the pilz pipeline (Jazzy expects `planning_plugins`, plural):
     pilz_planning_pipeline_config = {
-        "pilz_industrial_motion_planner": {
-            "planning_plugins": ["pilz_industrial_motion_planner/CommandPlanner"],
-            "default_planner_config": "PTP",
+        "move_group": {
+            "planning_plugin": "pilz_industrial_motion_planner/CommandPlanner",
+            "request_adapters": """ """,
             "start_state_max_bounds_error": 0.1,
-            # "request_adapters": [],  # optional
+            "default_planner_config": "PTP",
         }
     }
+    pilz_cartesian_limits_yaml = load_yaml("ros2srrc_robots", CONFIGURATION["rob"] + "/config/pilz_cartesian_limits.yaml")
+    pilz_cartesian_limits = {'robot_description_planning': pilz_cartesian_limits_yaml}
 
     # MoveIt!2 Controllers:
     if (EE == "false") or (EE == "true-NOctr"):
@@ -372,9 +322,9 @@ def generate_launch_description():
         "publish_transforms_updates": True,
     }
     move_group_capabilities = {
-        "capabilities": "pilz_industrial_motion_planner/MoveGroupSequenceAction "
-                        "pilz_industrial_motion_planner/MoveGroupSequenceService"
-    }   
+        "capabilities": """pilz_industrial_motion_planner/MoveGroupSequenceAction \
+            pilz_industrial_motion_planner/MoveGroupSequenceService"""
+    }
 
     # MoveGroup Node:
     run_move_group_node = Node(
@@ -384,11 +334,12 @@ def generate_launch_description():
         parameters=[
             robot_description,
             robot_description_semantic,
-            robot_description_kinematics,
-            robot_description_planning,
+            kinematics_yaml,
             
-            planning_pipelines,
-            pilz_planning_pipeline_config, 
+            pilz_planning_pipeline_config,
+
+            joint_limits,
+            pilz_cartesian_limits,
 
             trajectory_execution,
             moveit_controllers,
@@ -399,11 +350,11 @@ def generate_launch_description():
     )
 
     # RVIZ:
-    rviz_base = os.path.join(get_package_share_directory("ros2srrc_moveit"), "config")
+    rviz_base = os.path.join(get_package_share_directory(PACKAGE_NAME + "_moveit2"), "config")
     if EE == "false":
-        rviz_full_config = os.path.join(rviz_base, CONFIGURATION["rob"] + ".rviz")
+        rviz_full_config = os.path.join(rviz_base, CONFIGURATION["rob"] + "_moveit2.rviz")
     else:
-        rviz_full_config = os.path.join(rviz_base, CONFIGURATION["rob"] + "_" + CONFIGURATION["ee"] + ".rviz")
+        rviz_full_config = os.path.join(rviz_base, CONFIGURATION["rob"] + CONFIGURATION["ee"] + "_moveit2.rviz")
 
     rviz_node_full = Node(
         package="rviz2",
@@ -414,20 +365,18 @@ def generate_launch_description():
         parameters=[
             robot_description,
             robot_description_semantic,
-            robot_description_kinematics,
-            robot_description_planning,
+            kinematics_yaml,
             
-            planning_pipelines,
-            pilz_planning_pipeline_config, 
+            pilz_planning_pipeline_config,
+
+            joint_limits,
+            pilz_cartesian_limits,
 
             trajectory_execution,
             moveit_controllers,
             planning_scene_monitor_parameters,
             move_group_capabilities,
             {"use_sim_time": True},
-
-            {"move_group/planning_plugin": "pilz_industrial_motion_planner"},
-            {"move_group/default_planner_config": "PTP"},
         ]
     )
 
@@ -442,7 +391,7 @@ def generate_launch_description():
             package="ros2srrc_execution",
             executable="move",
             output="screen",
-            parameters=[robot_description, robot_description_semantic, robot_description_kinematics, {"use_sim_time": True}, {"ROB_PARAM": CONFIGURATION["rob"]}, {"EE_PARAM": CONFIGURATION["ee"]}, {"ENV_PARAM": "gazebo"}],
+            parameters=[robot_description, robot_description_semantic, kinematics_yaml, {"use_sim_time": True}, {"ROB_PARAM": CONFIGURATION["rob"]}, {"EE_PARAM": CONFIGURATION["ee"]}, {"ENV_PARAM": "gazebo"}],
         )
 
     else:
@@ -452,7 +401,7 @@ def generate_launch_description():
             package="ros2srrc_execution",
             executable="move",
             output="screen",
-            parameters=[robot_description, robot_description_semantic, robot_description_kinematics, {"use_sim_time": True}, {"ROB_PARAM": CONFIGURATION["rob"]}, {"EE_PARAM": "none"}, {"ENV_PARAM": "gazebo"}],
+            parameters=[robot_description, robot_description_semantic, kinematics_yaml, {"use_sim_time": True}, {"ROB_PARAM": CONFIGURATION["rob"]}, {"EE_PARAM": "none"}, {"ENV_PARAM": "gazebo"}],
         )
 
     # RobMove and RobPose:
@@ -461,24 +410,21 @@ def generate_launch_description():
         package="ros2srrc_execution",
         executable="robmove",
         output="screen",
-        parameters=[robot_description, robot_description_semantic, robot_description_kinematics, {"use_sim_time": True}, {"ROB_PARAM": CONFIGURATION["rob"]}],
+        parameters=[robot_description, robot_description_semantic, kinematics_yaml, {"use_sim_time": True}, {"ROB_PARAM": CONFIGURATION["rob"]}],
     )
     RobPoseInterface = Node(
         name="robpose",
         package="ros2srrc_execution",
         executable="robpose",
         output="screen",
-        parameters=[robot_description, robot_description_semantic, robot_description_kinematics, {"use_sim_time": True}, {"ROB_PARAM": CONFIGURATION["rob"]}],
+        parameters=[robot_description, robot_description_semantic, kinematics_yaml, {"use_sim_time": True}, {"ROB_PARAM": CONFIGURATION["rob"]}],
     )
     
     # =============================================== #
     # ========== RETURN LAUNCH DESCRIPTION ========== #
 
     # Add ROS 2 Nodes to LaunchDescription() element:
-    LD.add_action(gzSIM)
-    LD.add_action(gzSERVICE_bridge)
-    LD.add_action(gzTOPIC_bridge)
-    LD.add_action(clock_bridge)
+    LD.add_action(gazebo)
     LD.add_action(node_robot_state_publisher)
     LD.add_action(static_tf)
     LD.add_action(spawn_entity)

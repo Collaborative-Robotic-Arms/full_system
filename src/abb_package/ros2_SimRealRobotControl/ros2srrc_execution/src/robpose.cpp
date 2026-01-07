@@ -9,11 +9,6 @@
 #  You may not use this file except in compliance with the License.                     #
 #  You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0  #
 #                                                                                       #
-#  Unless required by applicable law or agreed to in writing, software distributed      #
-#  under the License is distributed on an "as-is" basis, without warranties or          #
-#  conditions of any kind, either express or implied. See the License for the specific  #
-#  language governing permissions and limitations under the License.                    #
-#                                                                                       #
 #  IFRA Group - Cranfield University                                                    #
 #  AUTHORS: Mikel Bueno Viso - Mikel.Bueno-Viso@cranfield.ac.uk                         #
 #           Dr. Seemal Asif  - s.asif@cranfield.ac.uk                                   #
@@ -22,18 +17,10 @@
 #  Date: August, 2023.                                                                  #
 #                                                                                       #
 # ===================================== COPYRIGHT ===================================== #
-
-# ======= CITE OUR WORK ======= #
-# You can cite our work with the following statement:
-# IFRA-Cranfield (2023) ROS 2 Sim-to-Real Robot Control. URL: https://github.com/IFRA-Cranfield/ros2_SimRealRobotControl.
 */
 
-// RobPose.cpp:
-
-// Required to include ROS2 (C++):
+// Required ROS2 headers:
 #include "rclcpp/rclcpp.hpp"
-
-// Required for timer:
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -41,20 +28,11 @@
 using namespace std::chrono_literals;
 
 // Include MoveIt!2:
-#include <moveit/move_group_interface/move_group_interface.hpp>
+#include <moveit/move_group_interface/move_group_interface.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.hpp>
 
 // Include the Robpose ROS2 Message:
-#include "ros2srrc_data/msg/robpose.hpp"
-
-// Declaration of GLOBAL VARIABLE --> MoveIt!2 Interface:
-std::unique_ptr<moveit::planning_interface::MoveGroupInterface> move_group_interface_ROB;
-
-// Declaration of GLOBAL VARIABLE --> ROBOT PARAMETER:
-std::string param_ROB = "none";
-
-// Declaration of GLOBAL VARIABLE --> ROBOT POSE:
-ros2srrc_data::msg::Robpose POSE; 
+#include <ros2srrc_data/msg/robpose.hpp>
 
 // =============================================================================== //
 //  PARAM -> ROBOT:
@@ -65,45 +43,51 @@ public:
     ros2_RobotParam() : Node("ros2_RobotParam") 
     {
         this->declare_parameter("ROB_PARAM", "none");
-        param_ROB = this->get_parameter("ROB_PARAM").get_parameter_value().get<std::string>();
+        param_ROB = this->get_parameter("ROB_PARAM").as_string();
         RCLCPP_INFO(this->get_logger(), "ROB_PARAM received -> %s", param_ROB.c_str());
     }
+
+    std::string get_robot_param() {
+        return param_ROB;
+    }
+
 private:
+    std::string param_ROB;
 };
 
 // =============================================================================== //
-//  PUB -> ROBOT POSE:
+//  ROBOT POSE PUBLISHER:
 
 class RobPose_PUB : public rclcpp::Node
 {
 public:
-  RobPose_PUB()
-  : Node("ros2srrc_RobPosePUB"), count_(0)
-  {
-    publisher_ = this->create_publisher<ros2srrc_data::msg::Robpose>("Robpose", 10);
-    timer_ = this->create_wall_timer(50ms, std::bind(&RobPose_PUB::timer_callback, this));
-  }
+    RobPose_PUB(std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group)
+        : Node("ros2srrc_RobPosePUB"), move_group_(move_group)
+    {
+        publisher_ = this->create_publisher<ros2srrc_data::msg::Robpose>("Robpose", 10);
+        timer_ = this->create_wall_timer(50ms, std::bind(&RobPose_PUB::timer_callback, this));
+    }
 
 private:
+    void timer_callback()
+    {
+        auto CP_INFO = move_group_->getCurrentPose();
 
-  void timer_callback()
-  {
-    auto CP_INFO = move_group_interface_ROB->getCurrentPose();
+        ros2srrc_data::msg::Robpose pose_msg;
+        pose_msg.x = CP_INFO.pose.position.x;
+        pose_msg.y = CP_INFO.pose.position.y;
+        pose_msg.z = CP_INFO.pose.position.z;
+        pose_msg.qx = CP_INFO.pose.orientation.x;
+        pose_msg.qy = CP_INFO.pose.orientation.y;
+        pose_msg.qz = CP_INFO.pose.orientation.z;
+        pose_msg.qw = CP_INFO.pose.orientation.w;
 
-    POSE.x = CP_INFO.pose.position.x;
-    POSE.y = CP_INFO.pose.position.y;
-    POSE.z = CP_INFO.pose.position.z;
-    POSE.qx = CP_INFO.pose.orientation.x;
-    POSE.qy = CP_INFO.pose.orientation.y;
-    POSE.qz = CP_INFO.pose.orientation.z;
-    POSE.qw = CP_INFO.pose.orientation.w;
+        publisher_->publish(pose_msg);
+    }
 
-    publisher_->publish(POSE);
-  }
-
-  rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::Publisher<ros2srrc_data::msg::Robpose>::SharedPtr publisher_;
-  size_t count_;
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<ros2srrc_data::msg::Robpose>::SharedPtr publisher_;
+    std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
 };
 
 // ===================================================================================== //
@@ -112,36 +96,42 @@ private:
 
 int main(int argc, char **argv)
 {
-    // Initialise MAIN NODE:
+    // Initialise ROS2
     rclcpp::init(argc, argv);
 
-    auto node_LOGGER = std::make_shared<rclcpp::Node>("MOVE_INTERFACE_log");
-    
-    // Obtain ROBOT parameter:
+    // Create a shared node for parameters
     auto node_PARAM_ROB = std::make_shared<ros2_RobotParam>();
-    rclcpp::spin_some(node_PARAM_ROB);
+    rclcpp::spin_some(node_PARAM_ROB);  // Ensure parameters are loaded
 
-    // Launch and spin (EXECUTOR) MoveIt!2 Interface node:
-    auto name = "ros2srrc_RobPose";
-    auto const MoveIt2_NODE = std::make_shared<rclcpp::Node>(
-        name,
-        rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true));
-    rclcpp::executors::SingleThreadedExecutor executor; 
-    executor.add_node(MoveIt2_NODE);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Small delay to avoid race conditions
+
+    // Retrieve ROB_PARAM safely
+    std::string param_ROB = node_PARAM_ROB->get_robot_param();
+    std::string ROBname = param_ROB + "_arm";
+
+    if (param_ROB == "none")
+    {
+        RCLCPP_ERROR(node_PARAM_ROB->get_logger(), "Invalid ROB_PARAM received! Exiting.");
+        rclcpp::shutdown();
+        return -1;
+    }
+
+    // Create MoveIt!2 Node
+    auto moveit_node = std::make_shared<rclcpp::Node>("ros2srrc_RobPose");
+    rclcpp::executors::SingleThreadedExecutor executor;
+    executor.add_node(moveit_node);
     std::thread([&executor]() { executor.spin(); }).detach();
 
-    // MoveGroupInterface_ROB:
+    // Initialize MoveGroupInterface with the correct robot name
     using moveit::planning_interface::MoveGroupInterface;
-    auto ROBname = param_ROB + "_arm";
-    move_group_interface_ROB = std::make_unique<MoveGroupInterface>(MoveIt2_NODE, ROBname);
+    auto move_group_interface_ROB = std::make_shared<MoveGroupInterface>(moveit_node, ROBname);
 
-    RCLCPP_INFO(node_LOGGER->get_logger(),
-                "MoveGroupInterface object created for ROBOT: %s",
-                param_ROB.c_str());
+    // Launch Pose Publisher Node
+    auto pose_publisher_node = std::make_shared<RobPose_PUB>(move_group_interface_ROB);
+    rclcpp::spin(pose_publisher_node);
 
-    // SPIN PUBLISHER:
-    rclcpp::spin(std::make_shared<RobPose_PUB>());
-
+    // Shutdown ROS2
     rclcpp::shutdown();
     return 0;
 }
+

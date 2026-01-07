@@ -15,8 +15,6 @@
   <depend>libcurl4-openssl-dev</depend>
   <depend>control_msgs</depend>
   <depend>moveit_msgs</depend>
-  <depend>supervisor_package</depend>
-  <depend>rclcpp_action</depend>
   
 
   <exec_depend>launch</exec_depend>

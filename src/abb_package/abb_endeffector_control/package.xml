@@ -4,7 +4,7 @@
   <name>abb_endeffector_control</name>
   <version>1.0.0</version>
   <description>This package provides control for ABB end effector.</description>
-  <maintainer email="marwan@todo.todo">marwan</maintainer>
+  <maintainer email="omar-magdy@todo.todo">omar-magdy</maintainer>
   <license>TODO: License declaration</license>
  <buildtool_depend>ament_cmake</buildtool_depend>
 

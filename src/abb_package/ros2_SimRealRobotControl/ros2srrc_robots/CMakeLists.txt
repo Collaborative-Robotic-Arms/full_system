@@ -37,24 +37,6 @@ install(
   DIRECTORY 
     
     irb120
-    irb1200
-    irb1600
-    irb6640
-
-    ur3
-    ur3e
-    ur5
-    ur10
-    ur10e
-    ur16e
-    ur20
-    ur5e
-
-    iiwa
-
-    rx160
-
-    ar4
 
   DESTINATION 
     share/${PROJECT_NAME}

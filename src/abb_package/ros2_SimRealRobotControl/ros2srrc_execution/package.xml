@@ -5,7 +5,7 @@
   <version>0.0.0</version>
   <description>IFRA-Cranfield (Cranfield University, UK). Package: ROS 2 SimRealRobotControl - EXECUTION</description>
   <maintainer email="Mikel.Bueno-Viso@cranfield.ac.uk">mikel</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
@@ -20,17 +20,27 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
   <depend>std_msgs</depend>
+  <depend>moveit_msgs</depend>
 
   <depend>ros2srrc_data</depend>
-  <!-- <depend>ros2_robotiqgripper</depend> -->
-  <!-- <depend>ros2_objectpose</depend> -->
+  <build_depend>linkattacher_msgs</build_depend>
+  <build_depend>abb_robot_msgs</build_depend>
+  <depend>ros2_robotiqgripper</depend>
 
-  <depend>abb_robot_msgs</depend>
+  <!-- ✅ Fixed MoveIt dependencies -->
+  <depend>moveit_core</depend>
+  <depend>moveit_ros_planning_interface</depend>
+  <depend>moveit_ros_planning</depend>
+  <depend>moveit_ros_move_group</depend>
 
   <depend>yaml-cpp</depend>
   <depend>ament_index_cpp</depend>
+  
+<exec_depend>rosidl_default_runtime</exec_depend>
 
+  
   <export>
     <build_type>ament_cmake</build_type>
   </export>
 </package>
+

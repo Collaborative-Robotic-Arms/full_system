@@ -61,10 +61,8 @@
       </collision>
       <inertial>
         <origin xyz="0 0 0" rpy="0 0 ${pi/2}" />
-        <mass value="0.03"/>
-        <inertia ixx="4.09e-06" ixy="0.0" ixz="0.0"
-                iyy="4.09e-06" iyz="0.0"
-                izz="8.00e-06"/>
+        <mass value="0.001" />
+        <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
       </inertial>
     </link>
 
@@ -82,24 +80,23 @@
 
     <link name="egp64_gripper_base_link">
       <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <mass value="0.72"/>
-        <inertia ixx="9.375e-04" ixy="0.0" ixz="0.0"
-                iyy="1.10976e-03" iyz="0.0"
-                izz="3.1926e-04"/>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <mass value="0.005" />
+        <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
       </inertial>
       <visual>
         <geometry>
           <mesh filename="file://$(find ros2srrc_endeffectors)/egp64/meshes/egp64_BaseNoAdapter.dae" />
         </geometry>
-        <material name="silver">
-          <color rgba="0.8 0.8 0.8 1"/>
+        <material name="blue">
+          <color rgba="0 0 1 1"/>
         </material>
       </visual>
       <collision>
         <geometry>
           <mesh filename="file://$(find ros2srrc_endeffectors)/egp64/meshes/egp64_BaseNoAdapter.dae" />
         </geometry>
+        <material name="blue"/>
       </collision>
     </link>
 
@@ -114,10 +111,8 @@
     <link name="egp64_finger_left_link">
       <inertial>
         <origin xyz="0.01483 -0.00782 0" rpy="0 0 0" />
-        <mass value="0.02"/>
-        <inertia ixx="3.47e-07" ixy="0.0" ixz="0.0"
-                iyy="2.77e-06" iyz="0.0"
-                izz="2.91e-06"/>
+        <mass value="0.002" />
+        <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
       </inertial>
       <visual>
         <geometry>
@@ -131,16 +126,17 @@
         <geometry>
           <mesh filename="file://$(find ros2srrc_endeffectors)/egp64/meshes/egp64_LeftFingerBase.dae" />
         </geometry>
+        <material name="black" />
       </collision>
     </link>
     
     <joint name="egp64_finger_left_joint" type="prismatic" >
       <parent link="egp64_gripper_base_link" />
       <child link="egp64_finger_left_link" />
-      <limit effort="1000" lower="-0.0001" upper="0.027" velocity="0.2"/>
+      <limit effort="1000" lower="-0.001" upper="0.04" velocity="0.2"/>
       <origin xyz="0.01483 -0.00782 0" rpy="0 0 0" />
       <axis xyz="-1 0 0" />
-      <dynamics damping="0.2" friction="0.05"/>
+      <dynamics damping="1.0" friction="1.0"/>
     </joint>
     
     <!-- LEFT FINGERTIP -->
@@ -148,10 +144,8 @@
     <link name="egp64_fingertip_left_link">
       <inertial>
         <origin xyz="0.03869 -0.0005 0.00093" rpy="0 0 0" />
-        <mass value="0.005"/>
-        <inertia ixx="3.71e-08" ixy="0.0" ixz="0.0"
-                iyy="1.77e-07" iyz="0.0"
-                izz="1.93e-07"/>
+        <mass value="0.001" />
+        <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
       </inertial>
       <visual>
         <geometry>
@@ -165,6 +159,7 @@
         <geometry>
           <mesh filename="file://$(find ros2srrc_endeffectors)/egp64/meshes/egp64_LeftFinger.dae" />
         </geometry>
+        <material name="black"/>
       </collision>
     </link>
     
@@ -173,16 +168,15 @@
       <child link="egp64_fingertip_left_link" />
       <origin xyz="0.03869 -0.0005 0.00093" rpy="0 0 0"/>
     </joint>
+
     
     <!-- RIGHT FINGER BASE -->
 
     <link name="egp64_finger_right_link">
       <inertial>
         <origin xyz="-0.0153 -0.00602 0" rpy="0 0 0" />
-        <mass value="0.02"/>
-        <inertia ixx="3.47e-07" ixy="0.0" ixz="0.0"
-                iyy="2.77e-06" iyz="0.0"
-                izz="2.91e-06"/>
+        <mass value="0.002" />
+        <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
       </inertial>
       <visual>
         <geometry>
@@ -194,16 +188,17 @@
         <geometry>
           <mesh filename="file://$(find ros2srrc_endeffectors)/egp64/meshes/egp64_RightFingerBase.dae" />
         </geometry>
+        <material name="black"/>
       </collision>
     </link>
     
     <joint name="egp64_finger_right_joint" type="prismatic" >
       <parent link="egp64_gripper_base_link" />
       <child link="egp64_finger_right_link" />
-      <limit effort="1000" lower="-0.0001" upper="0.027" velocity="0.2"/>
+      <limit effort="1000" lower="-0.001" upper="0.04" velocity="0.2"/>
       <origin xyz="-0.0153 -0.00602 0" rpy="0 0 0" />
       <axis xyz="1 0 0" />
-      <dynamics damping="0.2" friction="0.05"/>
+      <dynamics damping="1.0" friction="1.0"/>
     </joint>
     
     <!-- RIGHT FINGERTIP -->
@@ -211,10 +206,8 @@
     <link name="egp64_fingertip_right_link">
       <inertial>
         <origin xyz="-0.01211 -0.00197 0.00093" rpy="0 0 0" />
-        <mass value="0.005"/>
-        <inertia ixx="3.71e-08" ixy="0.0" ixz="0.0"
-                iyy="1.77e-07" iyz="0.0"
-                izz="1.93e-07"/>
+        <mass value="0.001" />
+        <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
       </inertial>
       <visual>
         <geometry>
@@ -226,6 +219,7 @@
         <geometry>
           <mesh filename="file://$(find ros2srrc_endeffectors)/egp64/meshes/egp64_RightFinger.dae" />
         </geometry>
+        <material name="black"/>
       </collision>
     </link>
     

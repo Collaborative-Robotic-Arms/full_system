@@ -11,7 +11,7 @@
 // These must match your robot's setup in the SRDF and configuration files
 static const std::string ROBOT_GROUP_NAME = "irb120_arm"; 
 static const std::string END_EFFECTOR_LINK = "tool0";     
-static const std::string POSE_TOPIC_NAME = "/target_pose";
+static const std::string POSE_TOPIC_NAME = "/aruco_pose";
 // ---------------------
 
 class MoveItPoseController : public rclcpp::Node
@@ -92,14 +92,18 @@ public:
         geometry_msgs::msg::Pose target_pose;
         
         target_pose.position.x = x;
-        target_pose.position.y = y;
-        target_pose.position.z = z;
+        target_pose.position.y = -y;
+        target_pose.position.z = z + 0.62;
         
-        target_pose.orientation.w = qw;
-        target_pose.orientation.x = qx;
-        target_pose.orientation.y = qy;
-        target_pose.orientation.z = qz;
-
+        // target_pose.orientation.w = 0.0;
+        // target_pose.orientation.x = 0.70711;
+        // target_pose.orientation.y = 0.0;
+        // target_pose.orientation.z = 0.7071;
+        target_pose.orientation.w = 0.0;
+        target_pose.orientation.x = 0.0;
+        target_pose.orientation.y = -1.0; // Note the negative sign
+        target_pose.orientation.z = 0.0;
+        // z: 1.035}, orientation: {w: 0.0, x: 0.70711, y: 0.0, z: 0.7071}}}"
         // 2. Set the target pose
         move_group_->setPoseTarget(target_pose);
         

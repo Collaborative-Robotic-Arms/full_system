@@ -12,7 +12,7 @@
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0" />
         <geometry>
-          <mesh filename="package://assembly_environment/meshes/abb_table.STL" />
+          <mesh filename="file://$(find assembly_environment)/meshes/abb_table.STL" />
         </geometry>
         <material name="">
           <color rgba="0.792 0.820 0.933 1" />
@@ -21,7 +21,7 @@
       <collision>
         <origin xyz="0 0 0" rpy="0 0 0" />
         <geometry>
-          <mesh filename="package://assembly_environment/meshes/abb_table.STL" />
+          <mesh filename="file://$(find assembly_environment)/meshes/abb_table.STL" />
         </geometry>
       </collision>
     </link>
@@ -35,7 +35,7 @@
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0" />
         <geometry>
-          <mesh filename="package://assembly_environment/meshes/ar4_table.STL" />
+          <mesh filename="file://$(find assembly_environment)/meshes/ar4_table.STL" />
         </geometry>
         <material name="">
           <color rgba="0.792 0.820 0.933 1" />
@@ -44,7 +44,7 @@
       <collision>
         <origin xyz="0 0 0" rpy="0 0 0" />
         <geometry>
-          <mesh filename="package://assembly_environment/meshes/ar4_table.STL" />
+          <mesh filename="file://$(find assembly_environment)/meshes/ar4_table.STL" />
         </geometry>
       </collision>
     </link>
@@ -63,7 +63,7 @@
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0" />
         <geometry>
-          <mesh filename="package://assembly_environment/meshes/camera.STL" />
+          <mesh filename="file://$(find assembly_environment)/meshes/camera.STL" />
         </geometry>
         <material name="">
           <color rgba="0.792 0.820 0.933 1" />
@@ -72,7 +72,7 @@
       <collision>
         <origin xyz="0 0 0" rpy="0 0 0" />
         <geometry>
-          <mesh filename="package://assembly_environment/meshes/camera.STL" />
+          <mesh filename="file://$(find assembly_environment)/meshes/camera.STL" />
         </geometry>
       </collision>
     </link>

@@ -29,121 +29,76 @@
 # IFRA-Cranfield (2023) ROS 2 Sim-to-Real Robot Control. URL: https://github.com/IFRA-Cranfield/ros2_SimRealRobotControl.
 
 # IMPORT LIBRARIES:
-
 import argparse
 import os
-import rclpy
-from rclpy.node import Node
+import xacro
 from ament_index_python.packages import get_package_share_directory
-from pathlib import Path
-
-from ros_gz_interfaces.srv import SpawnEntity
-from geometry_msgs.msg import Pose
-
-
-class GzEntitySpawner(Node):
-
-    def __init__(self, args):
-
-        super().__init__('objectpose_GzEntitySpawner')
-        self.args = args
-
-        self.service_name = f'/world/{self.args.world}/create'
-        self.get_logger().info(f'Connecting to `{self.service_name}` ...')
-
-        self.cli = self.create_client(SpawnEntity, self.service_name)
-        while not self.cli.wait_for_service(timeout_sec=0.5):
-            self.get_logger().info(f'Waiting for service {self.service_name} ...')
-        self.get_logger().info('...connected!')
-
-    def _resolve_sdf_path(self) -> str:
-
-        if os.path.isabs(self.args.sdf):
-            return self.args.sdf
-        share = get_package_share_directory(self.args.package)
-        for sub in ('sdf', 'models', 'objects'):
-            cand = os.path.join(share, sub, self.args.sdf)
-            if os.path.exists(cand):
-                return cand
-        raise FileNotFoundError(
-            f"'{self.args.sdf}' not found under {share}/sdf. {share}/models, or {share}/objects, "
-            "and it is not an absolute path."
-        )
-
-    def build_sdf_string(self) -> str:
-
-        # Read the SDF file text:
-        sdf_path = self._resolve_sdf_path()
-        with open(sdf_path, 'r') as f:
-            xml = f.read()
-        
-        # Compute absolute path to the mesh: 
-        share = get_package_share_directory(self.args.package)
-        sdf_base = os.path.splitext(os.path.basename(self.args.sdf))[0]
-        mesh_path = os.path.join(share, 'meshes', 'objects', f'{sdf_base}.dae')
-
-        if not os.path.exists(mesh_path):
-            self.get_logger().info(f"Mesh not found: {mesh_path}. Ignore this error if the sdf file does not use a mesh.")
-        
-        # Convert to a correct file URI:
-        mesh_uri = Path(mesh_path).as_uri()   
-
-        # Do your existing replacements plus the mesh:
-        xml = xml.replace('$(name)', self.args.name)
-        xml = xml.replace('$(mesh_uri)', mesh_uri)
-        return xml
-
-    def spawn(self):
-
-        req = SpawnEntity.Request()
-        req.entity_factory.name = self.args.name
-        req.entity_factory.allow_renaming = True          
-        req.entity_factory.relative_to = "world"
-        req.entity_factory.sdf = self.build_sdf_string()
-
-        pose = Pose()
-        pose.position.x = float(self.args.x)
-        pose.position.y = float(self.args.y)
-        pose.position.z = float(self.args.z)
-        req.entity_factory.pose = pose
-
-        self.get_logger().info(
-            f"Spawning `{self.args.name}` at ({self.args.x}, {self.args.y}, {self.args.z})"
-        )
-
-        fut = self.cli.call_async(req)
-        rclpy.spin_until_future_complete(self, fut)
-        res = fut.result()
-        if res is not None:
-            self.get_logger().info(f"Spawn success={res.success} msg='{getattr(res, 'status_message', '')}'")
-            if not res.success:
-                raise RuntimeError(f"Spawn failed: {getattr(res, 'status_message', '')}")
-        else:
-            raise RuntimeError(f'Exception calling service: {fut.exception()}')
-
+from gazebo_msgs.srv import SpawnEntity
+import rclpy
 
 def main():
 
-    parser = argparse.ArgumentParser(description='Spawn an SDF model into a Gazebo (Gz Fortress) world.')
+    # Get input arguments from user:
+    parser = argparse.ArgumentParser(description='Spawn object into our Gazebo world.')
+    parser.add_argument('--package', type=str, default='', help='Package where URDF/XACRO file is located.')
+    parser.add_argument('--urdf', type=str, default='', help='URDF of the object to spawn.')
+    parser.add_argument('--name', type=str, default='', help='Name of the object to spawn.')
+    parser.add_argument('--namespace', type=str, default='', help='ROS namespace to apply to the tf and plugins.')
+    parser.add_argument('--ns', type=bool, default=True, help='Whether to enable namespacing')
+    parser.add_argument('--x', type=float, default=0.0, help='the x component of the initial position [meters].')
+    parser.add_argument('--y', type=float, default=0.0, help='the y component of the initial position [meters].')
+    parser.add_argument('--z', type=float, default=0.0, help='the z component of the initial position [meters].')
+    
+    args, unknown = parser.parse_known_args()
 
-    parser.add_argument('--package', type=str, required=True, help='Package where the SDF file is installed.')
-    parser.add_argument('--sdf', type=str, default='box.sdf', help='SDF filename (relative to the package share/sdf or absolute path).')
-    parser.add_argument('--name', type=str, required=True, help='Model instance name (also used to replace $(name) in the SDF).')
-    parser.add_argument('--x', type=float, default=0.0, help='Initial X [m].')
-    parser.add_argument('--y', type=float, default=0.0, help='Initial Y [m].')
-    parser.add_argument('--z', type=float, default=0.2, help='Initial Z [m].')
-    parser.add_argument('--world', type=str, default='ros2srrc_GzWorld', help='Target world name (default: ros2srrc_GzWorld).')
-
-    args, _ = parser.parse_known_args()
-
+    # Start node:
     rclpy.init()
-    node = GzEntitySpawner(args)
-    try:
-        node.spawn()
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    node = rclpy.create_node('entity_spawner')
 
+    node.get_logger().info(
+        'Creating Service client to connect to `/spawn_entity`')
+    client = node.create_client(SpawnEntity, '/spawn_entity')
+
+    node.get_logger().info('Connecting to `/spawn_entity` service...')
+    if not client.service_is_ready():
+        client.wait_for_service()
+        node.get_logger().info('...connected!')
+
+    # Set data for request:
+    request = SpawnEntity.Request()
+    request.name = args.name
+
+    urdf_file_path = os.path.join(get_package_share_directory(args.package), 'urdf', 'objects', args.urdf) # It is assumed that the .urdf/.xacro file is located in /urdf/objects folder!
+    xacro_file = xacro.process_file(urdf_file_path, mappings={"name": args.name})
+    request.xml = xacro_file.toxml()
+
+    request.initial_pose.position.x = float(args.x)
+    request.initial_pose.position.y = float(args.y)
+    request.initial_pose.position.z = float(args.z)
+
+    if args.namespace is True:
+        node.get_logger().info('spawning `{}` on namespace `{}` at {}, {}, {}'.format(
+            args.name, args.namespace, args.x, args.y, args.z))
+
+        request.namespace = args.namespace
+        print(args.namespace)
+
+    else:
+        node.get_logger().info('spawning `{}` at {}, {}, {}'.format(
+            args.name, args.x, args.y, args.z))
+
+    node.get_logger().info('Spawning OBJECT using service: `/spawn_entity`')
+    future = client.call_async(request)
+    rclpy.spin_until_future_complete(node, future)
+    if future.result() is not None:
+        print('response: %r' % future.result())
+    else:
+        raise RuntimeError(
+            'exception while calling service: %r' % future.exception())
+
+    node.get_logger().info('Done! Shutting down node.')
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

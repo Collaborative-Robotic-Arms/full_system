@@ -138,7 +138,7 @@ def generate_launch_description():
         
     # CHECK if -> PACKAGE EXISTS, and GET PATH:
     try:
-        PKG_PATH = get_package_share_directory(PACKAGE_NAME)
+        PKG_PATH = get_package_share_directory(PACKAGE_NAME + "_gazebo")
     except PackageNotFoundError:
         print("")
         print("ERROR: The defined ROS 2 Package was not found. Please try again.")
@@ -160,38 +160,40 @@ def generate_launch_description():
         print("Closing... BYE!")
         exit()   
 
+    # === INPUT ARGUMENT: HMI === #
+    HMI = AssignArgument("hmi")
+    if HMI == "True" or HMI == "true":
+        HMI = "true"
+    else:
+        HMI = "false"
+
     # ========== CELL INFORMATION ========== #
     print("")
-    print("===== GAZEBO: Robot Simulation (" + PACKAGE_NAME + ") =====")
+    print("===== GAZEBO: Robot Simulation (" + PACKAGE_NAME + "_gazebo) =====")
     print("Robot configuration:")
     print(CONFIGURATION["ID"] + " -> " + CONFIGURATION["Name"])
     print("")
     
     # ***** GAZEBO ***** #   
-    # DECLARE GAZEBO WORLD file:
-    world_gz = os.path.join(
-        get_package_share_directory('ros2srrc_gz'),
+    # DECLARE Gazebo WORLD file:
+    robot_gazebo = os.path.join(
+        get_package_share_directory(PACKAGE_NAME + '_gazebo'),
         'worlds',
-        'ros2srrc_gz.sdf')
+        PACKAGE_NAME + '.world')
     # DECLARE Gazebo LAUNCH file:
-    gzSIM = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            [os.path.join(get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')]
-        ),
-        launch_arguments={
-            'gz_args': f'-r -v 1 "{world_gz}"',
-            'on_exit_shutdown': 'true'
-        }.items(),
-    )
+    gazebo = IncludeLaunchDescription(
+                PythonLaunchDescriptionSource([os.path.join(get_package_share_directory('gz_ros2'), 'launch'), '/gazebo.launch.py']),
+                launch_arguments={'world': robot_gazebo}.items(),
+            )
 
     # ***** ROBOT DESCRIPTION ***** #
     # Robot Description file package:
-    robot_description_path = os.path.join(get_package_share_directory(PACKAGE_NAME))
+    robot_description_path = os.path.join(get_package_share_directory(PACKAGE_NAME + '_gazebo'))
     # ROBOT urdf file path:
     xacro_file = os.path.join(robot_description_path,'urdf',CONFIGURATION["urdf"])
     # Generate ROBOT_DESCRIPTION variable:
     doc = xacro.parse(open(xacro_file))
-    
+    print("urdf file: ", doc.toxml())
     if CONFIGURATION["ee"] == "none":
         EE = "false"
     else:
@@ -200,6 +202,7 @@ def generate_launch_description():
     xacro.process_doc(doc, mappings={
         "EE": EE,
         "EE_name": CONFIGURATION["ee"],
+        "hmi": HMI,
     })
     
     # EE -> Controller file needed?
@@ -222,17 +225,9 @@ def generate_launch_description():
     )
 
     # SPAWN ROBOT TO GAZEBO:
-    spawn_entity = Node(
-        package='ros_gz_sim', 
-        executable='create',
-        arguments=[
-            '-topic', 'robot_description',
-            '-name', CONFIGURATION["rob"],
-            '-x', '0',
-            '-y', '0',
-            '-z', '0',
-        ],
-        output='both')
+    spawn_entity = Node(package='gz_ros2', executable='spawn_entity.py',
+                        arguments=['-topic', 'robot_description','-entity', CONFIGURATION["rob"]],
+                        output='both')
 
     # ***** CONTROLLERS ***** #
     # Joint STATE BROADCASTER:
@@ -262,31 +257,11 @@ def generate_launch_description():
                 )
             )
 
-    # SpawnEntity service bridge for world "ros2srrc_GzWorld":
-    gzSERVICE_bridge = Node(
-        package='ros_gz_bridge',
-        executable='parameter_bridge',
-        name='gz_spawn_service_bridge',
-        arguments=['/world/ros2srrc_GzWorld/create@ros_gz_interfaces/srv/SpawnEntity'],
-        output='screen'
-    )
-
-    # Gazebo TOPIC BRIDGE for the camera:
-    gzTOPIC_bridge = Node(
-        package='ros_gz_image',
-        executable='image_bridge',
-        name='camera_image_bridge',
-        arguments=['/camera/image_raw'],  # CAMERA TOPIC.
-        output='screen'
-    )
-
     # =============================================== #
     # ========== RETURN LAUNCH DESCRIPTION ========== #
 
     # Add ROS 2 Nodes to LaunchDescription() element:
-    LD.add_action(gzSIM)
-    LD.add_action(gzSERVICE_bridge)
-    LD.add_action(gzTOPIC_bridge)
+    LD.add_action(gazebo)
     LD.add_action(node_robot_state_publisher)
     LD.add_action(spawn_entity)
 
