@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <robot name="dual_arms_with_environment" xmlns:xacro="http://www.ros.org/wiki/xacro">
-  
+  <xacro:arg name="bringup" default="false"/>
   <xacro:include filename="$(find assembly_environment)/urdf/environment.xacro" />
   <xacro:include filename="$(find annin_ar4_description)/urdf/ar_macro.xacro" />
   <xacro:include filename="$(find annin_ar4_description)/urdf/ar_gripper_macro.xacro" />
@@ -48,67 +48,52 @@
 
 
   <xacro:abb_gripper arm_parent_link="tool0" gripper_prefix="gripper_"/>
- <!-- <link name="Base_brick">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="file:///home/mohamed/full_system/src/dual_arms/meshes/bricks/base_brick.STL" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="Black">
-        <color rgba="0.0 0.0 0.0 1.0"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="file:///home/mohamed/full_system/src/dual_arms/meshes/bricks/base_brick.STL" scale="0.001 0.001 0.001"/>
-      </geometry>
-    </collision>
-    <inertial>
-      <mass value="1.0"/>
-      <inertia ixx="0.1" ixy="0.0" ixz="0.0" iyy="0.1" iyz="0.0" izz="0.1"/>
-    </inertial>
-  </link>
 
-  <gazebo reference="Base_brick">
-    <material>Gazebo/Black</material>
+  <gazebo reference="ar4_gripper_jaw1_link">
+    <mu1>100.0</mu1>
+    <mu2>100.0</mu2>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.0</maxVel>
   </gazebo>
-    
-    <joint name="world_to_base_brick_joint" type="fixed">
-    <parent link="world"/>
-    <child link="Base_brick"/>
-    <origin xyz="0.6 0 1.1" rpy="0 0 0"/> 
-  </joint>
-    
-    <link name="T_brick_1">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="file:///home/mohamed/full_system/src/dual_arms/meshes/bricks/T_brick.STL" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="Blue">
-        <color rgba="0.0 0.0 1.0 1.0"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="file:///home/mohamed/full_system/src/dual_arms/meshes/bricks/T_brick.STL" scale="0.001 0.001 0.001"/>
-      </geometry>
-    </collision>
-    <inertial>
-      <mass value="1.0"/>
-      <inertia ixx="0.1" ixy="0.0" ixz="0.0" iyy="0.1" iyz="0.0" izz="0.1"/>
-    </inertial>
-  </link>
-
-  <gazebo reference="T_brick_1">
-    <material>Gazebo/Blue</material>
+  <gazebo reference="ar4_gripper_jaw2_link">
+    <mu1>100.0</mu1>
+    <mu2>100.0</mu2>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.0</maxVel>
   </gazebo>
 
-  <joint name="world_to_T_brick_1" type="fixed">
-    <parent link="world"/>
-    <child link="T_brick_1"/>
-    <origin xyz="0.6 0 1.14" rpy="0 0 0"/> 
-  </joint> -->
+  <gazebo reference="gripper_ABB_Gripper_Finger_1">
+    <mu1>100.0</mu1>
+    <mu2>100.0</mu2>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.0</maxVel>
+  </gazebo>
+  <gazebo reference="gripper_ABB_Gripper_Finger_2">
+    <mu1>100.0</mu1>
+    <mu2>100.0</mu2>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.0</maxVel>
+  </gazebo>
+
+  <gazebo>
+    
+    <plugin filename="libgz-sim-vacuum-gripper-system.so"
+            name="gz::sim::systems::VacuumGripper">
+        <link_name>ar4_gripper_jaw1_link</link_name> 
+        <suction_enabled>false</suction_enabled> 
+        <fixed>false</fixed> 
+        <suction_on_topic>/ar4/gripper/lock_trigger</suction_on_topic>
+        <contact_sensor_topic>/ar4/gripper/contact</contact_sensor_topic>
+    </plugin>
+
+    <plugin filename="libgz-sim-vacuum-gripper-system.so"
+            name="gz::sim::systems::VacuumGripper">
+        <link_name>gripper_ABB_Gripper_Finger_1</link_name> 
+        <suction_enabled>false</suction_enabled> 
+        <fixed>false</fixed> 
+        <suction_on_topic>/abb/gripper/lock_trigger</suction_on_topic>
+        <contact_sensor_topic>/abb/gripper/contact</contact_sensor_topic>
+    </plugin>
+
+  </gazebo>
 </robot>

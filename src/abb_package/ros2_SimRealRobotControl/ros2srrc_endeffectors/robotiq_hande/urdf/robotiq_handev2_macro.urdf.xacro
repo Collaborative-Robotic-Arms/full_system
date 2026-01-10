@@ -47,7 +47,7 @@
 
     <!-- ***** Robotiq HandE GRIPPER .urdf SERIAL CHAIN ***** -->
 
-    <!-- Robotiq: bracket 
+    <!-- Robotiq: bracket -->
     <link name="robotiq_bracket">
       <visual>
         <geometry>
@@ -71,7 +71,7 @@
       <origin xyz="0 0 0.002" rpy="0 0 0" />
       <parent link="${parent_link}"/>
       <child link="robotiq_bracket"/>
-    </joint> -->
+    </joint>
     
     <!-- Robotiq: coupler -->
     <link name="robotiq_coupler">
@@ -79,9 +79,6 @@
         <geometry>
           <mesh filename="file://$(find ros2srrc_endeffectors)/robotiq_hande/meshes/robotiq_hande_coupler.stl" />
         </geometry>
-        <material name="dark_grey">
-          <color rgba="0.2 0.2 0.2 1"/>
-        </material>
       </visual>
       <collision>
         <geometry>
@@ -97,10 +94,16 @@
     </link>
 
     <joint name="robotiq_coupler_joint" type="fixed">
-      <origin xyz="0 0 -0.008" rpy="0 0 0" />
-      <parent link="${parent_link}"/>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <parent link="robotiq_bracket"/>
       <child link="robotiq_coupler"/>
     </joint>
+
+    <gazebo reference="robotiq_coupler">
+      <mu1>0.9</mu1>
+      <mu2>0.9</mu2>
+      <material>Gazebo/FlatBlack</material>
+    </gazebo>
 
     <!-- Robotiq: base_link -->
     <link name="robotiq_hande_base_link">
@@ -136,16 +139,13 @@
       <inertial>
         <origin rpy="0 0 0" xyz="0.02262 -0.00759 0.00738"/>
         <mass value="0.03804"/>
-        <inertia ixx="1.3567e-05" ixy="0" ixz="0" iyy="1.5784e-05" iyz="0" izz="7.478e-06"/>
+        <inertia ixx="13567E-9" ixy="1849E-9" ixz="3622E-9" iyy="15784E-9" iyz="3616E-9" izz="7478E-9"/>
       </inertial>
       <visual>
         <origin rpy="0 0 0" xyz="0 0 0"/>
         <geometry>
           <mesh filename="file://$(find ros2srrc_endeffectors)/robotiq_hande/meshes/finger_1v2.dae"/>
         </geometry>
-        <material name="dark_grey">
-          <color rgba="0.2 0.2 0.2 1"/>
-        </material>
       </visual>
       <collision>
         <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -155,13 +155,16 @@
       </collision>
     </link>
 
+    <gazebo reference="robotiq_hande_left_finger">
+      <material>Gazebo/Grey</material>
+    </gazebo>
+
     <joint name="robotiq_hande_left_finger_joint" type="prismatic">
       <origin rpy="0 0 0" xyz="0.0 0.0 0.099"/>
       <parent link="robotiq_hande_base_link"/>
       <child link="robotiq_hande_left_finger"/>
       <axis xyz="-1 0 0"/>
-      <limit effort="130" lower="-0.0001" upper="0.0251" velocity="0.15"/>
-      <dynamics damping="0.2" friction="0.05"/>
+      <limit effort="130" lower="-0.05" upper="0.025" velocity="0.15"/>
     </joint>
 
     <!-- Robotiq: right finger -->
@@ -169,16 +172,13 @@
       <inertial>
         <origin rpy="0 0 0" xyz="-0.02262 0.00759 0.00738"/>
         <mass value="0.03804"/>
-        <inertia ixx="1.3567e-05" ixy="0" ixz="0" iyy="1.5784e-05" iyz="0" izz="7.478e-06"/>
+        <inertia ixx="13567E-9" ixy="1849E-9" ixz="3622E-9" iyy="15784E-9" iyz="3616E-9" izz="7478E-9"/>
       </inertial>
       <visual>
         <origin rpy="0 0 0" xyz="0 0 0"/>
         <geometry>
           <mesh filename="file://$(find ros2srrc_endeffectors)/robotiq_hande/meshes/finger_2v2.dae"/>
         </geometry>
-        <material name="dark_grey">
-          <color rgba="0.2 0.2 0.2 1"/>
-        </material>
       </visual>
       <collision>
         <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -188,13 +188,16 @@
       </collision>
     </link>
 
+    <gazebo reference="robotiq_hande_right_finger">
+      <material>Gazebo/Grey</material>
+    </gazebo>
+
     <joint name="robotiq_hande_right_finger_joint" type="prismatic">
       <origin rpy="0 0 0" xyz="0 0 0.099"/>
       <parent link="robotiq_hande_base_link"/>
       <child link="robotiq_hande_right_finger"/>
       <axis xyz="1 0 0"/>
-      <limit effort="130" lower="-0.0001" upper="0.0251" velocity="0.15"/>
-      <dynamics damping="0.2" friction="0.05"/>
+      <limit effort="130" lower="-0.05" upper="0.025" velocity="0.15"/>
     </joint>
 
     <!-- SMALL CUBE FOR GRIPPER PLUGIN -->

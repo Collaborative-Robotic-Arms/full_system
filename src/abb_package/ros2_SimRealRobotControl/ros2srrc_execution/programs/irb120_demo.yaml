@@ -1,6 +1,8 @@
 Specifications:
   Robot: "irb120"
   EndEffector: None
+  EELink: None
+  Objects: None
 
 Sequence: 
   

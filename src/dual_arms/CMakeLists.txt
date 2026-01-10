@@ -30,7 +30,6 @@ find_package(moveit_visual_tools REQUIRED)
 
 # Custom/Other Packages
 find_package(ros2srrc_data REQUIRED)
-find_package(linkattacher_msgs REQUIRED)
 find_package(abb_robot_msgs REQUIRED)
 find_package(ros2_robotiqgripper REQUIRED)
 find_package(rosidl_default_generators REQUIRED)

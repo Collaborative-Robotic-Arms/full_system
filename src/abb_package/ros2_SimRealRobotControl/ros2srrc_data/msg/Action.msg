@@ -9,3 +9,5 @@ Ypr moveypr
 Ypr moverot
 Xyzypr moverp
 float64 moveg
+Linkattacher attach
+Linkattacher detach

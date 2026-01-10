@@ -4,61 +4,73 @@ from launch.substitutions import LaunchConfiguration
 from launch.actions import DeclareLaunchArgument
 import os
 from ament_index_python.packages import get_package_share_directory
-
+from moveit_configs_utils import MoveItConfigsBuilder
 
 def generate_launch_description():
-    # --- 1. Define the SRDF path as a launch argument ---
-    # We declare it here, but set a fixed default value for convenience.
-    # Define the name of the package containing the SRDF file
-#    (This package name MUST match the directory in the path: irb120_ros2_moveit2)
-    SRDF_PACKAGE_NAME = 'irb120_ros2_moveit2' 
+    
+    # --- 1. Load MoveIt Configuration (CRITICAL FOR ABB_TASK_SERVER) ---
+    # We load the 'dual_arms' config because that matches your running simulation.
+    # This provides 'robot_description' and 'robot_description_semantic'.
+    moveit_config = MoveItConfigsBuilder("dual_arms", package_name="dual_arms").to_moveit_configs()
 
-    # 1. Get the install location (share directory) of the SRDF package
+    # --- 2. Existing Nodes (From your file) ---
+    
+    # A. SRDF Path Argument (Kept for your semantic_publisher)
+    SRDF_PACKAGE_NAME = 'ros2srrc_irb120_moveit2' 
     pkg_share_dir = get_package_share_directory(SRDF_PACKAGE_NAME)
-
-    # 2. Construct the file path relative to the package share directory
     srdf_file_path = os.path.join(pkg_share_dir, 'config', 'irb120.srdf')
 
-    # Use this new relative path in the DeclareLaunchArgument
     srdf_path_arg = DeclareLaunchArgument(
         'srdf_path',
         default_value=srdf_file_path,
-        description='Relative path to the SRDF file published from the package share directory.'
+        description='Path to SRDF'
     )
 
-    # # --- 2. Configure the C++ Node ---
-    # # NOTE: Replace 'your_control_package' with the actual package name 
-    # # where the 'semantic_publisher' executable is installed.
+    # B. Semantic Publisher
     semantic_publisher_node = Node(
-        package='abb_highlevel_bridge', # <-- CHANGE THIS
+        package='abb_highlevel_bridge', 
         executable='semantic_publisher',
         name='semantic_publisher',
         output='screen',
-        parameters=[{
-            # Passing the launch argument value to the node's parameter
-            'srdf_path': LaunchConfiguration('srdf_path')
-        }]
+        parameters=[{'srdf_path': LaunchConfiguration('srdf_path')}]
     )
 
+    # C. Inverse Kinematics
     abb_inverse_node = Node(
         package='abb_highlevel_bridge', 
         executable='inverse_kinematics',
         name='abb_inverse_control',
-        output='screen',
-        parameters=[]
+        output='screen'
     )
 
+    # D. Gripper Client
     gripper_node = Node(
         package='abb_highlevel_bridge',
         executable='abb_endeffector_control_client',
         name='gripper_control_client',
-        output='screen',
-        parameters=[]
+        output='screen'
+    )
+
+    # --- 3. THE MISSING NODE (ABB Task Server) ---
+    # This is the one that was crashing. We add it here with the correct params.
+    abb_task_server_node = Node(
+        package="abb_highlevel_bridge",
+        executable="abb_task_server",
+        name="abb_task_server",
+        output="screen",
+        # Pass the MoveIt configs so it can construct the robot model
+        parameters=[
+            moveit_config.robot_description,
+            moveit_config.robot_description_semantic,
+            moveit_config.robot_description_kinematics,
+            {"use_sim_time": True} # Important for syncing with Gazebo
+        ],
     )
 
     return LaunchDescription([
         srdf_path_arg,
         abb_inverse_node,
         semantic_publisher_node,
-        gripper_node
+        gripper_node,
+        abb_task_server_node  # <--- Added this to the launch list
     ])

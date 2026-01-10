@@ -45,8 +45,6 @@ install(
     
     robotiq_2f85
     robotiq_hande
-
-    ar4gripper
     
   DESTINATION 
     share/${PROJECT_NAME}

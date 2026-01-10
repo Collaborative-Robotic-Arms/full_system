@@ -1,60 +1,18 @@
 /*
 # ===================================== COPYRIGHT ===================================== #
-#                                                                                       #
-#  IFRA (Intelligent Flexible Robotics and Assembly) Group, CRANFIELD UNIVERSITY        #
-#  Created on behalf of the IFRA Group at Cranfield University, United Kingdom          #
-#  E-mail: IFRA@cranfield.ac.uk                                                         #
-#                                                                                       #
-#  Licensed under the Apache-2.0 License.                                               #
-#  You may not use this file except in compliance with the License.                     #
-#  You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0  #
-#                                                                                       #
-#  Unless required by applicable law or agreed to in writing, software distributed      #
-#  under the License is distributed on an "as-is" basis, without warranties or          #
-#  conditions of any kind, either express or implied. See the License for the specific  #
-#  language governing permissions and limitations under the License.                    #
-#                                                                                       #
-#  IFRA Group - Cranfield University                                                    #
-#  AUTHORS: Mikel Bueno Viso - Mikel.Bueno-Viso@cranfield.ac.uk                         #
-#           Dr. Seemal Asif  - s.asif@cranfield.ac.uk                                   #
-#           Prof. Phil Webb  - p.f.webb@cranfield.ac.uk                                 #
-#                                                                                       #
-#  Date: August, 2023.                                                                  #
-#                                                                                       #
+#  IFRA Group - Cranfield University
+#  Authors: Mikel Bueno Viso, Dr. Seemal Asif, Prof. Phil Webb
+#  Date: August, 2023.
 # ===================================== COPYRIGHT ===================================== #
-
-# ======= CITE OUR WORK ======= #
-# You can cite our work with the following statement:
-# IFRA-Cranfield (2023) ROS 2 Sim-to-Real Robot Control. URL: https://github.com/IFRA-Cranfield/ros2_SimRealRobotControl.
 */
 
-// RobMove.cpp:
-
-// Required to include ROS2 and ROS2 Action Server:
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-
-// Include the /Robmove ROS2 Action:
-#include "ros2srrc_data/action/robmove.hpp"
-
-// Include MoveIt!2:
 #include <moveit/move_group_interface/move_group_interface.hpp>
 #include <moveit/planning_scene_interface/planning_scene_interface.hpp>
-
-// For result codes:
-#include "moveit_msgs/msg/move_it_error_codes.hpp"
-
+#include "ros2srrc_data/action/robmove.hpp"
 #include <memory>
-#include <string>
-
-// Declaration of GLOBAL VARIABLE --> MoveIt!2 Interface:
-std::unique_ptr<moveit::planning_interface::MoveGroupInterface> move_group_interface_ROB;
-
-// Declaration of GLOBAL VARIABLE --> ROBOT PARAMETER:
-std::string param_ROB = "none";
-
-// Declaration of GLOBAL VARIABLE --> RES:
-std::string RES = "none";
+#include <thread>
 
 // =============================================================================== //
 //  PARAM -> ROBOT:
@@ -65,105 +23,76 @@ public:
     ros2_RobotParam() : Node("ros2_RobotParam") 
     {
         this->declare_parameter("ROB_PARAM", "none");
-        param_ROB = this->get_parameter("ROB_PARAM").get_parameter_value().get<std::string>();
+        param_ROB = this->get_parameter("ROB_PARAM").as_string();
         RCLCPP_INFO(this->get_logger(), "ROB_PARAM received -> %s", param_ROB.c_str());
     }
+
+    std::string get_robot_param() {
+        return param_ROB;
+    }
+
 private:
+    std::string param_ROB;
 };
 
 // =============================================================================== //
 // MoveIt!2 -> MoveGroupInterface/Plan function:
 
-moveit::planning_interface::MoveGroupInterface::Plan plan_ROB() {
-    
+moveit::planning_interface::MoveGroupInterface::Plan plan_ROB(std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_interface)
+{
     moveit::planning_interface::MoveGroupInterface::Plan my_plan;
-    bool success = (move_group_interface_ROB->plan(my_plan) == moveit_msgs::msg::MoveItErrorCodes::SUCCESS);
+    bool success = (move_group_interface->plan(my_plan).val == moveit::core::MoveItErrorCode::SUCCESS);
 
-    // Execute the plan
-    if (success)
-    {
-        RES = "PLANNING: OK";
-        return(my_plan);
-    }
-    else
-    {
-        RES = "PLANNING: ERROR";
-        return(my_plan);
-    }
-
-};
+    return my_plan;
+}
 
 // =============================================================================== //
 // ROS2 Action Server to move the ROBOT:
 
 class ActionServer : public rclcpp::Node
 {
-
 public:
     using Robmove = ros2srrc_data::action::Robmove;
     using GoalHandle = rclcpp_action::ServerGoalHandle<Robmove>;
 
-    explicit ActionServer(const rclcpp::NodeOptions & options = rclcpp::NodeOptions()) : Node("ros2srrc_RobMove", options){
-
+    explicit ActionServer(std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group)
+        : Node("ros2srrc_RobMove"), move_group_(move_group)
+    {
         action_server_ = rclcpp_action::create_server<Robmove>(
             this,
             "/Robmove",
             std::bind(&ActionServer::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
             std::bind(&ActionServer::handle_cancel, this, std::placeholders::_1),
             std::bind(&ActionServer::handle_accepted, this, std::placeholders::_1)
-            );
-
+        );
     }
 
 private:
     rclcpp_action::Server<Robmove>::SharedPtr action_server_;
+    std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
 
-    rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const Robmove::Goal> goal)
+    rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID &, std::shared_ptr<const Robmove::Goal> goal)
     {
-        RCLCPP_INFO(get_logger(), "RobMove (/Robmove) -> RECEIVED A ROBOT MOVEMENT REQUEST:");
-        RCLCPP_INFO(get_logger(), "Movement TYPE -> %s", goal->type.c_str());
-        RCLCPP_INFO(get_logger(), "Movement SPEED -> %.2f", goal->speed);
-        RCLCPP_INFO(get_logger(), "Desired POSITION -> (x: %.3f, y: %.3f, z: %.3f)", goal->x, goal->y, goal->z);
-        RCLCPP_INFO(get_logger(), "DESIRED ORIENTATION -> (qx: %.3f, qy: %.3f, qz: %.3f, qw: %.3f)", goal->qx, goal->qy, goal->qz, goal->qw);
+        RCLCPP_INFO(get_logger(), "Received Robot Movement Request (Type: %s, Speed: %.2f)", goal->type.c_str(), goal->speed);
         return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
     }
 
     void handle_accepted(const std::shared_ptr<GoalHandle> goal_handle)
     {
-        std::thread(
-            [this, goal_handle]() {
-                execute(goal_handle);
-            }).detach();
+        std::thread(&ActionServer::execute, this, goal_handle).detach();
     }
 
-    rclcpp_action::CancelResponse handle_cancel(const std::shared_ptr<GoalHandle> goal_handle)
+    rclcpp_action::CancelResponse handle_cancel(const std::shared_ptr<GoalHandle>)
     {
-        RCLCPP_INFO(this->get_logger(), "Received a cancel request.");
-        move_group_interface_ROB->stop();
-        (void)goal_handle;
+        RCLCPP_INFO(this->get_logger(), "Received cancel request.");
+        move_group_->stop();
         return rclcpp_action::CancelResponse::ACCEPT;
     }
 
     void execute(const std::shared_ptr<GoalHandle> goal_handle)
     {
-
-        // 0. INFORMATION -> Current Robot Pose:
-        auto CP_INFO = move_group_interface_ROB->getCurrentPose();
-        RCLCPP_INFO(get_logger(), "INFORMATION -> Current Robot Pose:");
-        RCLCPP_INFO(get_logger(), "POSITION -> (x: %.3f, y: %.3f, z: %.3f)", CP_INFO.pose.position.x, CP_INFO.pose.position.y, CP_INFO.pose.position.z);
-        RCLCPP_INFO(get_logger(), "ORIENTATION -> (qx: %.3f, qy: %.3f, qz: %.3f, qw: %.3f)", CP_INFO.pose.orientation.x, CP_INFO.pose.orientation.y, CP_INFO.pose.orientation.z, CP_INFO.pose.orientation.w);
-        
-        // 1. OBTAIN INPUT PARAMETERS:
         const auto GOAL = goal_handle->get_goal();
-
-        // 2. DECLARE RESULT:
         auto RESULT = std::make_shared<Robmove::Result>();
-
-        // 3. Robot Movement -> EXECUTION:
-
-        moveit::planning_interface::MoveGroupInterface::Plan MyPlan;
-        
-        auto CURRENT_POSE = move_group_interface_ROB->getCurrentPose();
 
         geometry_msgs::msg::Pose TARGET_POSE;
         TARGET_POSE.position.x = GOAL->x;
@@ -174,48 +103,25 @@ private:
         TARGET_POSE.orientation.z = GOAL->qz;
         TARGET_POSE.orientation.w = GOAL->qw;
 
-        move_group_interface_ROB->setPoseTarget(TARGET_POSE);
+        move_group_->setPoseTarget(TARGET_POSE);
+        move_group_->setPlannerId(GOAL->type);
+        move_group_->setMaxVelocityScalingFactor(GOAL->speed);
 
-        move_group_interface_ROB->setPlannerId(GOAL->type);
-        move_group_interface_ROB->setMaxVelocityScalingFactor(GOAL->speed);
+        auto MyPlan = plan_ROB(move_group_);
 
-        MyPlan = plan_ROB();
+        auto exec_result = move_group_->move();
+        bool ExecSUCCESS = (exec_result.val == moveit::core::MoveItErrorCode::SUCCESS);
 
-        if (RES == "PLANNING: OK"){
-
-            bool ExecSUCCESS = (move_group_interface_ROB->execute(MyPlan) == moveit_msgs::msg::MoveItErrorCodes::SUCCESS);
-
-            if (goal_handle->is_canceling()) {
-                RCLCPP_INFO(this->get_logger(), "ROBOT MOVEMENT (%s) has been CANCELED.", GOAL->type.c_str());
-                RESULT->success = false;
-                RESULT->message = "RobMove: CANCELED";
-                goal_handle->canceled(RESULT);
-                return;
-            } 
-            
-            if (ExecSUCCESS){
-                RCLCPP_INFO(this->get_logger(), "ROBOT MOVEMENT (%s) successfully executed.", GOAL->type.c_str());
-                RESULT->success = true;
-                RESULT->message = "RobMove: SUCCESS";
-                goal_handle->succeed(RESULT);
-            } else {
-                RCLCPP_INFO(this->get_logger(), "ROBOT MOVEMENT (%s) failed. Reason -> EXECUTION failure.", GOAL->type.c_str());
-                RESULT->success = false;
-                RESULT->message = "RobMove: EXECUTION FAILED";
-                goal_handle->succeed(RESULT);
-            }
-
+        if (ExecSUCCESS) {
+            RESULT->success = true;
+            RESULT->message = "RobMove: SUCCESS";
+            goal_handle->succeed(RESULT);
         } else {
-            RCLCPP_INFO(this->get_logger(), "ROBOT MOVEMENT (%s) failed. Reason -> PLANNING failure.", GOAL->type.c_str());
             RESULT->success = false;
-            RESULT->message = "RobMove: PLANNING FAILED";
+            RESULT->message = "RobMove: EXECUTION FAILED";
             goal_handle->succeed(RESULT);
         }
-
-        RES = "none";
-
     }
-
 };
 
 // ===================================================================================== //
@@ -224,43 +130,29 @@ private:
 
 int main(int argc, char **argv)
 {
-
-    // Initialise MAIN NODE:
+    // Initialise ROS2
     rclcpp::init(argc, argv);
-    
-    auto node_LOGGER = std::make_shared<rclcpp::Node>("MOVE_INTERFACE_log");
 
-    // Obtain ROBOT parameter:
     auto node_PARAM_ROB = std::make_shared<ros2_RobotParam>();
     rclcpp::spin_some(node_PARAM_ROB);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Ensure parameter is fully loaded
 
-    // Launch and spin (EXECUTOR) MoveIt!2 Interface node:
-    auto name = "ros2srrc_RobMove";
-    auto const MoveIt2_NODE = std::make_shared<rclcpp::Node>(name, rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true));
-    rclcpp::executors::SingleThreadedExecutor executor; 
-    executor.add_node(MoveIt2_NODE);
-    std::thread([&executor]() { executor.spin(); }).detach();
+    std::string param_ROB = node_PARAM_ROB->get_robot_param();
+    if (param_ROB == "none") {
+        RCLCPP_ERROR(node_PARAM_ROB->get_logger(), "Invalid ROB_PARAM received! Exiting.");
+        rclcpp::shutdown();
+        return -1;
+    }
 
-    // MoveGroupInterface_ROB:
-    using moveit::planning_interface::MoveGroupInterface;
-    auto ROBname = param_ROB + "_arm";
-    move_group_interface_ROB = std::make_unique<MoveGroupInterface>(MoveIt2_NODE, ROBname);
-    move_group_interface_ROB->setPlanningPipelineId("pilz_industrial_motion_planner");
+    std::string ROBname = param_ROB + "_arm";
+    auto moveit_node = std::make_shared<rclcpp::Node>("ros2srrc_RobMove");
 
-    move_group_interface_ROB->setMaxVelocityScalingFactor(1.0);
-    move_group_interface_ROB->setMaxAccelerationScalingFactor(1.0);
-    
-    RCLCPP_INFO(node_LOGGER->get_logger(), "MoveGroupInterface object created for ROBOT: %s", param_ROB.c_str());
+    auto move_group_interface_ROB = std::make_shared<moveit::planning_interface::MoveGroupInterface>(moveit_node, ROBname);
 
-    // CREATE -> PlanningSceneInterface:
-    using moveit::planning_interface::PlanningSceneInterface;
-    auto planning_scene_interface = PlanningSceneInterface();
-
-    // Declare and spin ACTION SERVER:
-    auto action_server = std::make_shared<ActionServer>();
+    auto action_server = std::make_shared<ActionServer>(move_group_interface_ROB);
     rclcpp::spin(action_server);
 
     rclcpp::shutdown();
     return 0;
-
 }
+

@@ -15,27 +15,28 @@ find_package(abb_robot_msgs REQUIRED)
 # Define the service interface
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetGripperState.srv"
-  # Add this if your .srv uses types from abb_robot_msgs directly
 )
 
-# Add the executable for the client node
+# --- 1. DEFINE THE EXECUTABLE ---
+# We name the target "abb_endeffector_control_client"
 add_executable(abb_endeffector_control_client src/endEffector.cpp)
 
-# add_executable(end_effector_clientpy src/endEffectorpy.py)
+# --- 2. LINK DEPENDENCIES ---
+# UPDATED: Use the SAME name "abb_endeffector_control_client"
+ament_target_dependencies(abb_endeffector_control_client 
+  rclcpp 
+  abb_robot_msgs
+) 
 
-# Link dependencies for the client node
-# The package itself provides the typesupport, so we link to it directly.
-ament_target_dependencies(end_effector_client rclcpp abb_robot_msgs) # Removed ${PROJECT_NAME}__rosidl_typesupport_cpp from here
-
-# ament_target_dependencies(end_effector_clientpy rclpy abb_robot_msgs) # Removed ${PROJECT_NAME}__rosidl_typesupport_cpp from here
-
-# Explicitly link against the generated typesupport library
-target_link_libraries(end_effector_client
+# Explicitly link against the generated typesupport library (since srv is in same package)
+# UPDATED: Use the SAME name "abb_endeffector_control_client"
+target_link_libraries(abb_endeffector_control_client
   ${PROJECT_NAME}__rosidl_typesupport_cpp
 )
 
-# Install the executable
-install(TARGETS end_effector_client
+# --- 3. INSTALL ---
+# UPDATED: Use the SAME name "abb_endeffector_control_client"
+install(TARGETS abb_endeffector_control_client
   DESTINATION lib/${PROJECT_NAME}
 )
 

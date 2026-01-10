@@ -1,12 +1,8 @@
-using namespace std::chrono_literals;
-
-
 #include <chrono>
 #include <memory>
 #include <string>
 #include <iostream> // For std::cin, std::cout
 #include <thread>   // For std::thread
-
 #include "rclcpp/rclcpp.hpp"
 #include <abb_robot_msgs/srv/set_rapid_bool.hpp>
 #include <abb_robot_msgs/msg/rapid_symbol_path.hpp>

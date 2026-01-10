@@ -25,7 +25,7 @@
       filename="gz-sim-contact-system"
       name="gz::sim::systems::Contact">
     </plugin>
-
+    
     <light type="directional" name="sun">
       <cast_shadows>false</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
@@ -66,7 +66,6 @@
         </visual>
       </link>
     </model>
-    
   
   <include>
       <pose>0.6 0.0 1.1 0 0 0</pose>
