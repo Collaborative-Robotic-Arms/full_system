@@ -1,64 +1,36 @@
+# The critical fix: All parameters must be nested under 'moveit_servo'
 moveit_servo:
-  # ============================================
-  # 1. Planning Group & Frames
-  # ============================================
-  move_group_name: ar_manipulator_servo
-  planning_frame: ar4_base_link
+  # The Planning Group (Must match your SRDF)
+  move_group_name: ar_manipulator
   
-  # The frame of the link you are moving (usually the End Effector or Camera Link)
-  # In Jazzy/Rolling, 'end_effector_name' is preferred over 'robot_link_command_frame'
-  end_effector_name: ar4_camera_link  
+  # The Frame your controller sends commands in (Camera Optical Frame)
+  robot_link_command_frame: ar4_camera_link
   
-  # ============================================
-  # 2. Command Types & Topics
-  # ============================================
-  # Input from your ViSP code (m/s and rad/s)
-  command_in_type: "speed_units" 
-
-  # OUTPUT CONFIGURATION (Choose ONE based on your active controller)
+  # Command Types
+  command_in_type: "speed_units" # Input is m/s and rad/s
+  command_out_type: "trajectory_msgs/JointTrajectory" 
   
-  # OPTION A: If using 'irb120_trajectory_controller' (Position/Spline)
-  # command_out_type: "trajectory_msgs/JointTrajectory"
+  # === SMOOTHING FIX ===
+  # Lower this value to increase smoothing.
+  # 2.0 = Reactive (Fast)
+  # 0.5 = Very Smooth (Slow ramp up). 
+  # Using 0.5 helps avoid "Acceleration Limit" violations at startup.
+  low_pass_filter_coeff: 0.5 
   
-  # OPTION B: If using 'JointGroupVelocityController' (Raw Velocity - Best for Servoing)
-  # Remove 'command_out_type' (defaults to internal JointJog) 
-  # OR set to "std_msgs/Float64MultiArray" if your controller needs that.
-  # command_out_type: "std_msgs/Float64MultiArray"
-
-  # ============================================
-  # 3. Visual Servoing Tuning (Speed & Smoothing)
-  # ============================================
-  # Loop Rate: 30Hz (0.033) is too slow for vision. Use 100Hz (0.01) or 250Hz (0.004).
-  publish_period: 0.01 
+  # Safety & Timing
+  publish_period: 0.033  # ~30Hz
+  incoming_command_timeout: 1.0  # Tolerant of lag
   
-  # Low Pass Filter: 0.5 is very smooth but slow. 
-  # If robot feels "laggy", increase this to 1.5 or 2.0.
-  low_pass_filter_coefficient: 1.4 
-  
-  # Lag tolerance
-  incoming_command_timeout: 0.5 
-
-  # ============================================
-  # 4. Scene & Collision (Critical for Dual Nodes)
-  # ============================================
-  # CRITICAL: Set to false because 'move_group' is already running.
-  is_primary_planning_scene_monitor: false
-  
-  # Disable collisions to prevent IKFast -31 errors during servoing
-  check_collisions: false
-  
-  # ============================================
-  # 5. Safety Limits
-  # ============================================
+  # === SINGULARITY FIXES ===
+  # Allow operation in messy math areas
   lower_singularity_threshold: 200.0
   hard_stop_singularity_threshold: 400.0
   
-  # Add margins to prevent hitting hard limits
-  joint_limit_margin: 0.05 
-
-  # Scaling
+  # Collision Checking (Keep false for initial tuning)
+  check_collisions: false
+  
+  # Scaling factors
   scale:
-    # 1.0 means "Use the exact speed my vision code calculates"
     linear: 1.0
     rotational: 1.0
     joint: 1.0

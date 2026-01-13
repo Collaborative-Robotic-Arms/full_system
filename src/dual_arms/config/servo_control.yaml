@@ -1,0 +1,51 @@
+moveit_servo:
+  # General Configuration
+  move_group_name: ar_manipulator
+  
+  # KINEMATICS & FRAMES
+  # -------------------------------------------------------------------
+  # NEW: Standardized parameter for the controlled link.
+  end_effector_name: ar4_camera_link
+  command_frame_id: ar4_camera_link 
+  robot_base_frame: base_link
+  planning_frame: base_link
+  
+  # COMMAND I/O (Ensure your topic is set here)
+  # -------------------------------------------------------------------
+  cartesian_command_in_topic: /servo_node/delta_twist_cmds
+  
+  # CRITICAL: Output topic for velocity commands (JointJog messages)
+  joint_command_out_topic: /controller_manager/inferred_joint_commands 
+
+  # Command Type & Smoothing
+  # -------------------------------------------------------------------
+  command_in_type: "speed_units" # Input is m/s and rad/s (Matching your input)
+  
+  # CRITICAL: Removed 'command_out_type'. Servo implicitly publishes JointJog.
+  
+  # Corrected parameter name and high smoothing value (0.5) to avoid startup errors.
+  low_pass_filter_coefficient: 0.5 
+  
+  # SAFETY AND TIMING
+  # -------------------------------------------------------------------
+  # CRITICAL: Set to a high rate for stable servoing (100-250 Hz)
+  publish_period: 0.004  # 250 Hz loop rate
+  incoming_command_timeout: 0.5  # Stop if no command received for 0.5s
+
+  # SINGULARITY HANDLING
+  # -------------------------------------------------------------------
+  # Use lower, more conservative values for stability. Servo uses condition number (lower is more singular).
+  lower_s_cut_val: 0.01 # Start decelerating near singularity
+  hard_stop_singularity_threshold: 0.1 # Hard stop threshold
+
+  # Collision Checking (Keep false for initial tuning)
+  check_collisions: false
+  
+  # Scaling factors (Standard structure in Jazzy)
+  # -------------------------------------------------------------------
+  scale:
+    # Cartesian Scaling
+    translational_velocity: 1.0
+    rotational_velocity: 1.0
+    # Joint Scaling (Limits output joint velocity as fraction of URDF limit)
+    joint_velocity: 1.0

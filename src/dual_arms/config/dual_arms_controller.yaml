@@ -36,7 +36,7 @@ ar4_trajectory_controller:
       - position
       - velocity
     state_publish_rate: 100.0
-    action_monitor_rate: 20.0
+    action_monitor_rate: 100.0
     allow_nonzero_velocity_at_trajectory_end: true
 
 
@@ -55,7 +55,7 @@ irb120_trajectory_controller:
       - position
       - velocity
     state_publish_rate: 100.0
-    action_monitor_rate: 20.0
+    action_monitor_rate: 100.0
 
 # 4. ABB GRIPPER (Effort Group Control)
 irb120_gripper_controller:

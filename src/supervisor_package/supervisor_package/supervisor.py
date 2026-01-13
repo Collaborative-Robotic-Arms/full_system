@@ -4,8 +4,12 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
+
+# Custom Interfaces
 from supervisor_package.srv import GetAssemblyPlan, DetectBricks
 from supervisor_package.action import MoveToPose, AlignToTarget, ExecuteTask
+from dual_arms_msgs.msg import GraspPoint 
+from dual_arms_msgs.srv import GetGrasp  
 
 # --- LOCAL IMPORTS ---
 from .gripper_manager import GripperManager
@@ -27,12 +31,16 @@ class AssemblySupervisor(Node):
         self.ar4_point_client = ActionClient(self, MoveToPose, 'ar4_point_control', callback_group=self.cb_group)
         self.ar4_vs_client = ActionClient(self, AlignToTarget, 'ar4_visual_servo', callback_group=self.cb_group)
         self.abb_client = ActionClient(self, ExecuteTask, 'abb_control', callback_group=self.cb_group)
+        self.grasp_client = ActionClient(self, MoveToPose, 'grasp_pipeline', callback_group=self.cb_group)
+        self.grasp_pipeline_client = self.create_client(GetGrasp, 'get_grasp', callback_group=self.cb_group) #
 
         self.get_logger().info('Supervisor Initialized. Waiting for services...')
 
         self.state = "INIT"
         self.current_brick = None
         self.assembly_queue = []
+        self.detected_bricks = [] # Array of dual_arms_msgs/Brick
+        self.current_grasp_point = None # Stores the grasp for the current task
 
         self.timer = self.create_timer(1.0, self.state_machine_loop, callback_group=self.cb_group)
 
@@ -47,7 +55,7 @@ class AssemblySupervisor(Node):
                 while not self.gui_client.wait_for_service(timeout_sec=1.0):
                     self.get_logger().info('Waiting for GUI node...')
 
-                # Reset grippers at start
+                # Reset grippers at start to known state
                 self.gripper.set_ar4_grip('OPEN')
                 self.gripper.set_abb_grip('OPEN')
 
@@ -59,12 +67,14 @@ class AssemblySupervisor(Node):
             elif self.state == "DETECT":
                 self.get_logger().info('Requesting Camera Detection...')
                 req = DetectBricks.Request()
+                # Detection result now includes bricks (with GraspPoint) and handover_pose
                 result = await self.camera_client.call_async(req)
                 self.detected_bricks = result.bricks
+                self.handover_pose = result.handover_pose
                 self.state = "PROCESS_NEXT"
 
             # =========================
-            # STATE 2: PROCESS NEXT
+            # STATE 2: PROCESS NEXT & GRASP PIPELINE
             # =========================
             elif self.state == "PROCESS_NEXT":
                 if not self.assembly_queue:
@@ -73,12 +83,40 @@ class AssemblySupervisor(Node):
                     return
 
                 self.current_brick = self.assembly_queue.pop(0)
-                if self.current_brick.location == 1:
-                    self.state = "EXECUTE_ABB_PICK"
-                elif self.current_brick.location == 2:
-                    self.state = "HANDOVER_SEQUENCE"
+                # Transition to the newly added Grasp Pipeline state
+                self.state = "GRASP_PIPELINE"
+
+            elif self.state == "GRASP_PIPELINE":
+                self.get_logger().info(f'Calling GetGrasp Service for Brick ID: {self.current_brick.id}') 
+
+                # 1. Wait for the service
+                if not self.grasp_pipeline_client.wait_for_service(timeout_sec=2.0):
+                    self.get_logger().error('Grasp Pipeline service not available!')
+                    self.state = "PROCESS_NEXT" # Skip or handle error
+                    return
+
+                # 2. Create the request using the brick ID
+                grasp_req = GetGrasp.Request()
+                grasp_req.brick_index = str(self.current_brick.id) # 
+                
+                # 3. Call the service and wait for the result
+                grasp_result = await self.grasp_pipeline_client.call_async(grasp_req) # 
+
+                if grasp_result.success:
+                    # Use the pose from the GraspPoint message returned by the service 
+                    self.current_grasp_point = grasp_result.grasp_point
+                    self.get_logger().info(f'Grasp retrieved. Quality: {self.current_grasp_point.quality}') # 
+                    
+                    # Branch to the correct arm based on current_brick location 
+                    if self.current_brick.location == 1:
+                        self.state = "EXECUTE_ABB_PICK"
+                    elif self.current_brick.location == 2:
+                        self.state = "HANDOVER_SEQUENCE"
+                    else:
+                        self.state = "EXECUTE_AR4_DIRECT"
                 else:
-                    self.state = "EXECUTE_AR4_DIRECT"
+                    self.get_logger().error(f'Failed to get grasp for brick {self.current_brick.id}')
+                    self.state = "PROCESS_NEXT"
 
             # =========================
             # STATE 3: AR4 PICK & PLACE
@@ -88,7 +126,7 @@ class AssemblySupervisor(Node):
 
                 # Step A: Approach
                 goal_msg = MoveToPose.Goal()
-                goal_msg.target_pose = self.current_brick.pickup_pose 
+                goal_msg.target_pose = self.current_grasp_point.pose 
                 goal_msg.strategy = "APPROACH_OFFSET"
                 await self.send_action_goal(self.ar4_point_client, goal_msg)
 
@@ -101,27 +139,20 @@ class AssemblySupervisor(Node):
                 # Step C: Lower and Grasp
                 self.get_logger().info('Lowering and Grasping...')
                 grasp_goal = MoveToPose.Goal()
-                grasp_goal.target_pose = self.current_brick.pickup_pose 
+                grasp_goal.target_pose = self.current_grasp_point.pose 
                 grasp_goal.strategy = "GRASP"
                 await self.send_action_goal(self.ar4_point_client, grasp_goal)
 
-                # Close AR4 Gripper
                 self.gripper.set_ar4_grip('CLOSE')
-
                 self.state = "AR4_PLACE_ON_GRID" if self.state == "EXECUTE_AR4_DIRECT" else "HANDOVER_EXECUTION"
 
             elif self.state == "AR4_PLACE_ON_GRID":
-                self.get_logger().info('Moving AR4 to pre-calculated place_pose...')
-
-                # Use direct place_pose from brick_processor
                 place_goal = MoveToPose.Goal()
                 place_goal.target_pose = self.current_brick.place_pose 
                 place_goal.strategy = "PLACE"
                 await self.send_action_goal(self.ar4_point_client, place_goal)
 
-                # Open AR4 Gripper
                 self.gripper.set_ar4_grip('OPEN')
-
                 self.state = "PROCESS_NEXT"
 
             # =========================
@@ -132,25 +163,22 @@ class AssemblySupervisor(Node):
 
                 abb_pick_goal = ExecuteTask.Goal()
                 abb_pick_goal.task_type = "PICK"
-                abb_pick_goal.target_pose = self.current_brick.pickup_pose 
+                
+                # MODIFICATION: Use the GraspPoint pose for the ABB reach
+                if self.current_grasp_point:
+                    self.get_logger().info('Targeting GraspPoint pose.')
+                    abb_pick_goal.target_pose = self.current_grasp_point.pose
+                else:
+                    abb_pick_goal.target_pose = self.current_brick.pickup_pose 
+                
                 await self.send_action_goal(self.abb_client, abb_pick_goal)
-
-                # Close ABB Gripper
-                self.gripper.set_abb_grip('CLOSE')
-
                 self.state = "EXECUTE_ABB_PLACE"
                 
             elif self.state == "EXECUTE_ABB_PLACE":
-                self.get_logger().info('Moving ABB to pre-calculated place_pose...')
-
                 abb_place_goal = ExecuteTask.Goal()
                 abb_place_goal.task_type = "PLACE"
                 abb_place_goal.target_pose = self.current_brick.place_pose 
                 await self.send_action_goal(self.abb_client, abb_place_goal)
-
-                # Open ABB Gripper
-                self.gripper.set_abb_grip('OPEN')
-
                 self.state = "PROCESS_NEXT"
                 
             # =========================
@@ -162,26 +190,17 @@ class AssemblySupervisor(Node):
             elif self.state == "HANDOVER_EXECUTION":
                 self.get_logger().info('Starting Handover...')
 
-                # AR4 → intermediate pose
                 goal = MoveToPose.Goal()
                 goal.strategy = "GOTO_HANDOVER"
                 await self.send_action_goal(self.ar4_point_client, goal)
 
-                # Update camera detection
-                req = DetectBricks.Request()
-                det_result = await self.camera_client.call_async(req)
-                handover_pose = det_result.handover_pose
-
-                # ABB picks
+                # ABB Task Server handles Open -> Move -> Close sequence
                 abb_goal = ExecuteTask.Goal()
                 abb_goal.task_type = "PICK_FROM_HANDOVER"
-                abb_goal.target_pose = handover_pose
+                # Use the handover_pose received during the DETECT phase
+                abb_goal.target_pose = self.handover_pose 
                 await self.send_action_goal(self.abb_client, abb_goal)
 
-                # Close ABB Gripper
-                self.gripper.set_abb_grip('CLOSE')
-
-                # AR4 releases
                 self.gripper.set_ar4_grip('OPEN')
                 release_goal = MoveToPose.Goal()
                 release_goal.strategy = "RELEASE"
@@ -209,10 +228,8 @@ class AssemblySupervisor(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = AssemblySupervisor()
-
     executor = MultiThreadedExecutor()
     executor.add_node(node)
-
     try:
         executor.spin()
     except KeyboardInterrupt: pass

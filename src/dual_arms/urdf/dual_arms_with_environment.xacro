@@ -74,10 +74,9 @@
     <minDepth>0.001</minDepth>
     <maxVel>0.0</maxVel>
   </gazebo>
-
-  <gazebo>
     
-    <plugin filename="libgz-sim-vacuum-gripper-system.so"
+   <gazebo>
+    <plugin filename="gz-sim-vacuum-gripper-system"
             name="gz::sim::systems::VacuumGripper">
         <link_name>ar4_gripper_jaw1_link</link_name> 
         <suction_enabled>false</suction_enabled> 
@@ -86,7 +85,7 @@
         <contact_sensor_topic>/ar4/gripper/contact</contact_sensor_topic>
     </plugin>
 
-    <plugin filename="libgz-sim-vacuum-gripper-system.so"
+    <plugin filename="gz-sim-vacuum-gripper-system"
             name="gz::sim::systems::VacuumGripper">
         <link_name>gripper_ABB_Gripper_Finger_1</link_name> 
         <suction_enabled>false</suction_enabled> 
@@ -94,6 +93,6 @@
         <suction_on_topic>/abb/gripper/lock_trigger</suction_on_topic>
         <contact_sensor_topic>/abb/gripper/contact</contact_sensor_topic>
     </plugin>
-
   </gazebo>
+  
 </robot>

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import time
+import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool, String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -31,12 +32,13 @@ class GripperManager:
             self.abb_lock_pub = node.create_publisher(Bool, '/abb/gripper/lock_trigger', 10)
             self.node.get_logger().info("[Gripper] Initialized in SIMULATION mode.")
         else:
-            # Publishers for Physical Hardware Controllers
-            # ABB usually uses Digital Output (DO) for vacuum/pneumatics
-            self.abb_hw_pub = node.create_publisher(Bool, '/abb/digital_output', 10)
-            # AR4 hardware often uses Serial commands via a dedicated driver
+            # Bridge Topic for ABB Hardware (Matches end_effector_bridge subscriber)
+            # The C++ bridge node listens to this topic to trigger RAPID services
+            self.abb_hw_bridge_pub = node.create_publisher(Bool, '/gripper_command', 10)
+            
+            # Publisher for AR4 hardware
             self.ar4_hw_pub = node.create_publisher(String, '/ar4/gripper/command', 10)
-            self.node.get_logger().info("[Gripper] Initialized in HARDWARE mode.")
+            self.node.get_logger().info("[Gripper] Initialized in HARDWARE mode with Bridge Topic.")
 
     def set_ar4_grip(self, state: str):
         """state: 'OPEN' or 'CLOSE'"""
@@ -59,20 +61,19 @@ class GripperManager:
         if self.use_sim:
             self._trigger_lock(self.ar4_lock_pub, is_closing)
         else:
-            # Send hardware-specific serial command
             msg = String()
             msg.data = "GRIP_ON" if is_closing else "GRIP_OFF"
             self.ar4_hw_pub.publish(msg)
 
     def set_abb_grip(self, state: str):
         """state: 'OPEN' or 'CLOSE'"""
-        # 1. Send Visual/Joint command
+        # 1. Send Visual/Joint command (Trajectory for RViz/Gazebo)
         traj = JointTrajectory()
         traj.joint_names = ['gripper_ABB_Gripper_Finger_1_Joint', 'gripper_ABB_Gripper_Finger_2_Joint']
         point = JointTrajectoryPoint()
         
-        is_closing = (state == 'CLOSE')
-        point.positions = [0.0, 0.0] if is_closing else [0.0135, 0.0135]
+        is_opening = (state == 'OPEN')
+        point.positions = [0.0135, 0.0135] if is_opening else [0.0, 0.0]
         point.time_from_start.sec = 1
         traj.points = [point]
         
@@ -80,15 +81,17 @@ class GripperManager:
         self.abb_traj_pub.publish(traj)
         
         # 2. Handle Physics/Actuation logic
-        time.sleep(1.2) # Sync delay
-        
         if self.use_sim:
-            self._trigger_lock(self.abb_lock_pub, is_closing)
+            time.sleep(1.2) # Sync delay for simulation visuals
+            self._trigger_lock(self.abb_lock_pub, not is_opening)
         else:
-            # Send hardware Digital I/O signal to robot controller
+            # HARDWARE MODE: Publish to the bridge topic
+            # The bridge node receives this and calls the SetRAPIDBool service
             msg = Bool()
-            msg.data = is_closing
-            self.abb_hw_pub.publish(msg)
+            msg.data = is_opening # True for OPEN, False for CLOSE
+            
+            self.node.get_logger().info(f"[Gripper] Publishing {state} to /gripper_command bridge topic.")
+            self.abb_hw_bridge_pub.publish(msg)
 
     def _trigger_lock(self, publisher, state: bool):
         """Internal helper for Simulation Sticky Logic."""

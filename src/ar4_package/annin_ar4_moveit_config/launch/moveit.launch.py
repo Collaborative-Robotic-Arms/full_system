@@ -38,8 +38,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "use_sim_time",
             default_value="True",
-            description="Make MoveIt use simulation time. This is needed "
-            + "for trajectory planing in simulation.",
+            description="Make MoveIt use simulation time.",
         )
     )
     declared_arguments.append(
@@ -104,7 +103,6 @@ def generate_launch_description():
     )
     robot_description = {"robot_description": robot_description_content}
 
-    # MoveIt Configuration
     robot_description_semantic_content = Command(
         [
             PathJoinSubstitution([FindExecutable(name="xacro")]),
@@ -141,21 +139,13 @@ def generate_launch_description():
         allow_substs=True,
     )
 
-    # Planning Configuration
-    ompl_planning_yaml = load_yaml(
-        "annin_ar4_moveit_config", "config/ompl_planning.yaml"
-    )
-    pilz_planning_yaml = load_yaml(
-        "annin_ar4_moveit_config", "config/pilz_planning.yaml"
-    )
     planning_pipeline_config = {
         "default_planning_pipeline": "ompl",
         "planning_pipelines": ["ompl", "pilz"],
-        "ompl": ompl_planning_yaml,
-        "pilz": pilz_planning_yaml,
+        "ompl": load_yaml("annin_ar4_moveit_config", "config/ompl_planning.yaml"),
+        "pilz": load_yaml("annin_ar4_moveit_config", "config/pilz_planning.yaml"),
     }
 
-    # Trajectory Execution Configuration
     moveit_controller_manager = {
         "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager",
     }
@@ -167,23 +157,8 @@ def generate_launch_description():
         allow_substs=True,
     )
 
-    trajectory_execution = {
-        "moveit_manage_controllers": False,
-        "trajectory_execution.allowed_execution_duration_scaling": 1.2,
-        "trajectory_execution.allowed_goal_duration_margin": 0.5,
-        "trajectory_execution.allowed_start_tolerance": 0.01,
-    }
+    # --- NODE DEFINITIONS ---
 
-    planning_scene_monitor_parameters = {
-        "publish_planning_scene": True,
-        "publish_geometry_updates": True,
-        "publish_state_updates": True,
-        "publish_transforms_updates": True,
-        # Added due to https://github.com/moveit/moveit2_tutorials/issues/528
-        "publish_robot_description_semantic": True,
-    }
-
-    # Start the actual move_group node/action server
     move_group_node = Node(
         package="moveit_ros_move_group",
         executable="move_group",
@@ -194,15 +169,13 @@ def generate_launch_description():
             robot_description_kinematics,
             joint_limits,
             planning_pipeline_config,
-            trajectory_execution,
             moveit_controller_manager,
             moveit_controllers,
-            planning_scene_monitor_parameters,
             {"use_sim_time": use_sim_time},
+            {"publish_planning_scene": True},
         ],
     )
 
-    # rviz with moveit configuration
     rviz_node = Node(
         package="rviz2",
         executable="rviz2",
@@ -217,34 +190,25 @@ def generate_launch_description():
         ],
     )
 
-    # Servo Configuration
-    servo_params = {
-        "moveit_servo": ParameterBuilder("annin_ar4_moveit_config")
-        .yaml("config/moveit_servo.yaml")
-        .to_dict()
-    }
-
-    # This sets the update rate and planning group name for the acceleration limiting filter.
-    acceleration_filter_update_period = {"update_period": 0.01}
-    planning_group_name = {"planning_group_name": "ar_manipulator"}
-
-    servo_node = Node(
-        package="moveit_servo",
-        executable="servo_node",
-        parameters=[
-            servo_params,
-            acceleration_filter_update_period,
-            planning_group_name,
-            robot_description,
-            robot_description_semantic,
-            robot_description_kinematics,
-            joint_limits,
-            planning_scene_monitor_parameters,
-            {"use_sim_time": use_sim_time},
-        ],
-        output="screen",
-        condition=IfCondition(moveit_servo),
+    # --- CONTROLLER SPAWNERS ---
+    # These bring the controllers online in simulation
+    joint_state_broadcaster_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
     )
 
-    nodes_to_start = [move_group_node, rviz_node, servo_node]
+    joint_trajectory_controller_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["joint_trajectory_controller", "--controller-manager", "/controller_manager"],
+    )
+
+    nodes_to_start = [
+        move_group_node,
+        rviz_node,
+        joint_state_broadcaster_spawner,
+        joint_trajectory_controller_spawner,
+    ]
+
     return LaunchDescription(declared_arguments + nodes_to_start)

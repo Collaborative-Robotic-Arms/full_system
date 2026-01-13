@@ -1,4 +1,4 @@
 string assembly_id
 ---
-supervisor_package/Brick[] plan
+supervisor_package/SuperBrick[] plan
 bool success

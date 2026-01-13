@@ -12,7 +12,7 @@ response_adapters:
   - default_planning_response_adapters/AddTimeOptimalParameterization
   - default_planning_response_adapters/ValidateSolution
 
-start_state_max_bounds_error: 0.1
+start_state_max_bounds_error: 0.2
 
 # 1. PLANNER CONFIGURATION DEFINITIONS
 planner_configs:

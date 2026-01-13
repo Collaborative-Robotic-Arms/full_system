@@ -12,7 +12,7 @@ find_package(rclcpp_action REQUIRED)
 # This automatically handles the Python and C++ bindings
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-"msg/Brick.msg"  
+"msg/SuperBrick.msg"  
 "action/MoveToPose.action"
   "action/AlignToTarget.action"
   "action/ExecuteTask.action"

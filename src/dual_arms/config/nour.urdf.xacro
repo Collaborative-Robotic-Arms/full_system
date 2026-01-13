@@ -1,0 +1,137 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="dual_arms">
+
+  <!-- Define arguments -->
+  <xacro:arg name="serial_port" default="/dev/ttyACM0"/>
+  <xacro:arg name="arduino_serial_port" default="/dev/ttyACM1"/>
+  <xacro:arg name="calibrate" default="True"/>
+  <xacro:arg name="tf_prefix" default="ar4_"/>
+  <xacro:arg name="include_gripper" default="True"/>
+  <xacro:arg name="ar_model" default="mk3"/>
+  <xacro:arg name="bringup" default="false"/>
+  <xacro:arg name="hmi" default="false"/>
+  <xacro:arg name="robot_ip" default="192.168.125.1"/>
+  <xacro:arg name="EE" default="True"/>
+  <xacro:arg name="EE_name" default="none"/>
+
+  <!-- Define properties -->
+  <xacro:property name="bringup" value="$(arg bringup)"/>
+  <xacro:property name="hmi" value="$(arg hmi)"/>
+  <xacro:property name="robot_ip" value="$(arg robot_ip)"/>
+  <xacro:property name="EE" value="$(arg EE)"/>
+  <xacro:property name="EE_name" value="$(arg EE_name)"/>
+
+  <!-- Include robot macros -->
+  <xacro:include filename="$(find annin_ar4_description)/urdf/ar_macro.xacro"/>
+  <xacro:include filename="$(find annin_ar4_description)/urdf/ar.ros2_control.xacro"/>
+  <xacro:include filename="$(find ros2srrc_robots)/irb120/urdf/irb120_macro.urdf.xacro"/>	
+  <!-- Instantiate IRB120 -->
+  <xacro:irb120 
+    bringup="${bringup}"
+    robot_ip="${robot_ip}"
+    EE="${EE}"
+    EE_name="${EE_name}"
+  />
+  
+  <!-- Include XACRO-MACRO file of the EGP64: -->
+  <xacro:include filename="$(find ros2srrc_endeffectors)/ee/urdf/irb_end_effector.urdf.xacro"/>	
+  <xacro:irb_ee 
+    bringup="${bringup}"
+    parent_link="tool0"
+  />
+
+<!-- Load ROS 2 Gazebo Plugin -->
+  <xacro:unless value="${bringup}">
+    
+<gazebo>
+<plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+<parameters>/home/nour/gp_ws/src/ros2_SimRealRobotControl/ros2srrc_robots/irb120/config/controller.yaml</parameters>
+        <parameters>$(find ros2srrc_endeffectors)/${EE_name}/config/ros2_controller.yaml</parameters>
+</plugin>
+</gazebo>
+</xacro:unless>
+  <!-- World -->
+  <link name="world"/>
+
+  <!-- Robot stand -->
+  <joint name="stand_joint" type="fixed">
+    <parent link="world"/>
+    <child link="base_link"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+  </joint>
+
+  <!-- Optional HMI camera -->
+  <xacro:if value="${hmi}">
+    <xacro:include filename="$(find ros2srrc_hmi)/urdf/hmicamera.urdf.xacro"/>	
+    <xacro:HMI_camera 
+      x="2.0" y="1.25" z="1.5"
+      roll="0.0" pitch="0.35" yaw="-2.6"
+    />
+  </xacro:if>
+
+  <!-- Instantiate AR4 robot -->
+  <xacro:ar_robot
+    tf_prefix="ar4_"
+    parent="world"
+    robot_parameters_file="$(find annin_ar4_description)/config/mk3.yaml">
+    <origin rpy="0 0 -1.57" xyz="1.115 0 0"/>
+  </xacro:ar_robot>
+
+  <!-- AR4 ros2_control -->
+  <xacro:ar_ros2_control
+    ar_model="mk3"
+    plugin_name="annin_ar4_driver/ARHardwareInterface"
+    serial_port="/dev/ttyACM0"
+    calibrate="True"
+    robot_parameters_file="$(find annin_ar4_description)/config/mk3.yaml"
+    joint_offset_parameters_file="$(find annin_ar4_driver)/config/joint_offsets/mk3.yaml"
+    driver_parameters_file="$(find annin_ar4_driver)/config/driver.yaml"
+    tf_prefix="ar4_"/>
+
+  <!-- AR4 gripper -->
+  <xacro:include filename="$(find annin_ar4_description)/urdf/ar_gripper_macro.xacro"/>
+  <xacro:ar_gripper
+    tf_prefix="ar4_"
+    parent="ar4_ee_link"/>
+
+  <!-- Only include real or mock control system, not both -->
+  <xacro:if value="${bringup}">
+    <!-- Real hardware interface -->
+    <xacro:include filename="$(find annin_ar4_description)/urdf/ar_gripper.ros2_control.xacro"/>
+    <xacro:ar_gripper_ros2_control
+      name="ar_servo_gripper"
+      plugin_name="annin_ar4_driver/ARServoGripperHWInterface"
+      serial_port="/dev/ttyUSB0"
+      tf_prefix="ar4_"/>
+  </xacro:if>
+
+  <xacro:unless value="${bringup}">
+    <!-- Simulated control interface -->
+    <ros2_control name="ar4_gripper_controller" type="system">
+      <hardware>
+        <plugin>annin_ar4_driver/ARServoGripperHWInterface</plugin>
+        <param name="joints">[ar4_gripper_jaw1_joint, ar4_gripper_jaw2_joint]</param>
+      </hardware>
+      <joint name="ar4_gripper_jaw1_joint">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+      </joint>
+      <joint name="ar4_gripper_jaw2_joint">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+      </joint>
+    </ros2_control>
+  </xacro:unless>
+
+  <!-- IRB end effector -->
+  <xacro:if value="$(arg include_gripper)">
+    <xacro:include filename="$(find end_effector)/urdf/irb_end_effector.xacro"/>
+    <xacro:include filename="$(find end_effector)/urdf/irb_ee.ros2_control.xacro"/>
+    <xacro:EE_ros2control/>
+  </xacro:if>
+<xacro:include filename="$(find dual_arms)/urdf/stand.urdf.xacro"/>	
+  <xacro:stand 
+    parent_link="world"
+  />
+</robot>
+

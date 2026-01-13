@@ -49,7 +49,7 @@ public:
             move_group_->setEndEffectorLink("tool0");
             move_group_->setGoalPositionTolerance(0.001); 
             move_group_->setGoalOrientationTolerance(0.017); 
-            move_group_->setPlanningTime(10.0); // Increased for stability
+            move_group_->setPlanningTime(10.0);
             RCLCPP_INFO(this->get_logger(), "MoveGroupInterface Ready for ABB.");
         } catch (const std::exception& e) {
             RCLCPP_ERROR(this->get_logger(), "MoveIt init failed: %s", e.what());
@@ -91,38 +91,80 @@ private:
             return;
         }
 
-        // --- Logic for PICK_FROM_HANDOVER ---
-        if (goal->task_type == "PICK_FROM_HANDOVER")
+        // --- Logic for PICK ---
+        if (goal->task_type == "PICK")
         {
-            // Step 1: Open Gripper
-            feedback->current_status = "OPENING_GRIPPER";
-            feedback->progress = 0.1;
-            goal_handle->publish_feedback(feedback);
-            if (!set_gripper_state(true)) { 
+            RCLCPP_INFO(this->get_logger(), "Executing standard PICK sequence");
+            
+            if (!set_gripper_state(true)) { // OPEN
                 result->success = false;
-                result->error_message = "Gripper failed to open";
+                result->error_message = "PICK: Failed to open gripper";
                 goal_handle->abort(result);
                 return;
             }
 
-            // Step 2: Move to Handover Pose
-            feedback->current_status = "MOVING_TO_HANDOVER_POSE";
+            feedback->current_status = "MOVING_TO_PICKUP";
             feedback->progress = 0.5;
             goal_handle->publish_feedback(feedback);
             if (!move_to_pose(goal->target_pose)) {
                 result->success = false;
-                result->error_message = "MoveIt failed to reach pose";
+                result->error_message = "PICK: MoveIt failed to reach pose";
                 goal_handle->abort(result);
                 return;
             }
 
-            // Step 3: Close Gripper
-            feedback->current_status = "GRASPING";
-            feedback->progress = 0.9;
-            goal_handle->publish_feedback(feedback);
-            if (!set_gripper_state(false)) { 
+            if (!set_gripper_state(false)) { // CLOSE
                 result->success = false;
-                result->error_message = "Gripper failed to close";
+                result->error_message = "PICK: Failed to grasp object";
+                goal_handle->abort(result);
+                return;
+            }
+        }
+        // --- Logic for PLACE ---
+        else if (goal->task_type == "PLACE")
+        {
+            RCLCPP_INFO(this->get_logger(), "Executing standard PLACE sequence");
+
+            feedback->current_status = "MOVING_TO_PLACE";
+            feedback->progress = 0.5;
+            goal_handle->publish_feedback(feedback);
+            if (!move_to_pose(goal->target_pose)) {
+                result->success = false;
+                result->error_message = "PLACE: MoveIt failed to reach pose";
+                goal_handle->abort(result);
+                return;
+            }
+
+            if (!set_gripper_state(true)) { // OPEN
+                result->success = false;
+                result->error_message = "PLACE: Failed to release object";
+                goal_handle->abort(result);
+                return;
+            }
+        }
+        // --- Logic for PICK_FROM_HANDOVER ---
+        else if (goal->task_type == "PICK_FROM_HANDOVER")
+        {
+            if (!set_gripper_state(true)) { // OPEN
+                result->success = false;
+                result->error_message = "HANDOVER: Failed to open gripper";
+                goal_handle->abort(result);
+                return;
+            }
+
+            feedback->current_status = "GOTO_HANDOVER";
+            feedback->progress = 0.5;
+            goal_handle->publish_feedback(feedback);
+            if (!move_to_pose(goal->target_pose)) {
+                result->success = false;
+                result->error_message = "HANDOVER: MoveIt failed to reach pose";
+                goal_handle->abort(result);
+                return;
+            }
+
+            if (!set_gripper_state(false)) { // CLOSE
+                result->success = false;
+                result->error_message = "HANDOVER: Failed to close gripper";
                 goal_handle->abort(result);
                 return;
             }
@@ -134,7 +176,6 @@ private:
             return;
         }
 
-        // Final Success
         result->success = true;
         result->error_message = "None";
         goal_handle->succeed(result);
@@ -155,10 +196,12 @@ private:
     {
         if (!gripper_client_->wait_for_service(std::chrono::seconds(2))) return false;
         auto request = std::make_shared<abb_robot_msgs::srv::SetRAPIDBool::Request>();
-        request->path.task = "T_Gripper";
+        
+        // Corrected Task Name to T_ROB1
+        request->path.task = "T_ROB1"; 
         request->path.module = "egm";
         request->path.symbol = "gripper_close";
-        request->value = open; // Your RAPID maps true->open, false->close
+        request->value = open; // Map: True -> Open (1 in RAPID), False -> Close (0 in RAPID)
         
         auto future = gripper_client_->async_send_request(request);
         if (future.wait_for(std::chrono::seconds(3)) == std::future_status::ready) {

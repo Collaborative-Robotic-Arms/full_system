@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 from supervisor_package.srv import GetAssemblyPlan, DetectBricks
 from supervisor_package.action import ExecuteTask # Keep only ABB action
-from supervisor_package.msg import Brick
+from supervisor_package.msg import SuperBrick as Brick 
 from geometry_msgs.msg import Pose
 from rclpy.action import ActionServer
 

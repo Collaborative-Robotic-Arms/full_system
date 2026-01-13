@@ -1,0 +1,71 @@
+moveit_run_benchmark:
+  ros__parameters:
+    benchmark_config:
+    # Configuration for the MoveIt Warehouse database
+    warehouse:
+        host: localhost
+        port: 33829
+
+    # Number of planning attempts to run for each unique start/goal/planner combination
+    runs: 10
+    
+    # List of planning groups to benchmark
+    group_names:
+        - irb120_arm
+        - ar_manipulator
+        - dual_arms
+
+    # Goals to test for each planning group
+    goal_constraints:
+        irb120_arm:
+        - name: all_zero
+        - name: grip
+        - name: put
+        ar_manipulator:
+        - name: home
+        - name: upright
+        dual_arms:
+        - name: dual_all_zero      
+        - name: dual_pick_place    
+        - name: dual_cross_reach   
+        - name: dual_high_low      
+
+    # Start states to test for each planning group
+    start_states:
+        irb120_arm:
+        - name: all_zero
+        ar_manipulator:
+        - name: home
+        dual_arms:
+        - name: dual_all_zero
+        - name: dual_cross_reach
+        - name: dual_high_low
+
+    # Planner configurations to use for each planning group
+    planner_configs:
+        irb120_arm:
+        - RRTConnectkConfigDefault
+        - PRMstarkConfigDefault
+        
+        ar_manipulator:
+        - RRTConnectkConfigDefault
+        - PRMstarkConfigDefault
+        
+        dual_arms:
+        - RRTConnectkConfigDefault
+        - PRMstarkConfigDefault
+        - InformedRRTstarkConfigDefault
+        
+    planner_configurations:
+        RRTConnectkConfigDefault:
+            type: geometric::RRTConnect
+            range: 0.0
+            
+        PRMstarkConfigDefault:
+            type: geometric::PRMstar
+            
+        InformedRRTstarkConfigDefault:
+            type: geometric::InformedRRTstar
+            range: 0.0
+            goal_bias: 0.05
+            delay_collision_checking: 1

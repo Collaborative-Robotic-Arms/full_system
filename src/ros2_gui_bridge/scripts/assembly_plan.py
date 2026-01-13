@@ -14,7 +14,7 @@ from dual_arms_msgs.msg import Brick as CamBrick
 
 # 3. Destination: Supervisor Service and Message Types
 from supervisor_package.srv import GetAssemblyPlan 
-from supervisor_package.msg import Brick as SupervisorBrick 
+from supervisor_package.msg import SuperBrick as SupervisorBrick 
 
 class AssemblyAllocator(Node):
     def __init__(self):

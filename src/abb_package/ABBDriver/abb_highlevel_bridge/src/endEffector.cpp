@@ -54,7 +54,7 @@ public:
 
     // Populate the RapidSymbolPath for the request
     // IMPORTANT: These must match what you configured in rws_service_provider_ros.cpp
-    request->path.task = "T_Gripper";          // Default RAPID task name
+    request->path.task = "T_ROB1";          // Default RAPID task name
     request->path.module = "egm"; // The module where your gripper bools are (e.g., MainModule, GripperControl)
 
     std::string action_description;

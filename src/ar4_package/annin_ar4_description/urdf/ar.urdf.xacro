@@ -7,16 +7,6 @@
   <xacro:include filename="$(find annin_ar4_description)/urdf/ar_gripper_macro.xacro" />
 
   <link name="world" />
-
-  <link name="Abb_dummy_base" />
-
-  <joint name="ABB_base_joint" type="fixed">
-    <parent link="world" />
-    <child link="Abb_dummy_base" />
-    <origin xyz="0 -1.110
-      0" rpy="0 0 0" />
-  </joint>
-
   <xacro:ar_robot
     tf_prefix="$(arg tf_prefix)"
     parent="world"

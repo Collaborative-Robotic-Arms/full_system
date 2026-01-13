@@ -1,121 +1,166 @@
-#include <rclcpp/rclcpp.hpp>
-#include <rclcpp_action/rclcpp_action.hpp>
+#include <stdio.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Transform.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+
+#include <chrono>
+#include <cmath>
+#include <csignal>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <iostream>
+#include <limits>
+#include <memory>
 #include <moveit/move_group_interface/move_group_interface.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <string>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
-#include "supervisor_package/action/move_to_pose.hpp"
+#include <thread>
+#include <array>
+#include <vector>
 
-class AR4PoseActionServer : public rclcpp::Node {
-public:
-    using MoveToPose = supervisor_package::action::MoveToPose;
-    using GoalHandleMove = rclcpp_action::ServerGoalHandle<MoveToPose>;
+using namespace std::chrono_literals;
+using moveit::planning_interface::MoveGroupInterface;
 
-    AR4PoseActionServer() : Node("ar4_pose_action_server", 
-        rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true)) 
-    {
-        // 1. Setup Action Server
-        this->action_server_ = rclcpp_action::create_server<MoveToPose>(
-            this, "ar4_point_control",
-            std::bind(&AR4PoseActionServer::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
-            std::bind(&AR4PoseActionServer::handle_cancel, this, std::placeholders::_1),
-            std::bind(&AR4PoseActionServer::handle_accepted, this, std::placeholders::_1));
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
-        RCLCPP_INFO(this->get_logger(), "AR4 Action Server is starting up...");
-    }
+std::atomic<bool> running(true);
 
-    // Since shared_from_this() cannot be called in the constructor, we init MoveGroup here
-    void init_move_group() {
-        move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(shared_from_this(), "ar_manipulator");
-        
-        // 2. Set default MoveIt parameters from your original file
-        move_group_->setMaxVelocityScalingFactor(0.7);
-        move_group_->setMaxAccelerationScalingFactor(0.5);
-        move_group_->setPlanningPipelineId("ompl");
-        move_group_->setPlannerId("RRTConnectkConfigDefault");
-        
-        RCLCPP_INFO(this->get_logger(), "MoveIt Interface Initialized for AR4.");
-    }
+void signalHandler(int signum) {
+    std::cout << "\nInterrupt signal (" << signum << ") received. Exiting...\n";
+    running = false;
+}
 
-private:
-    std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
-    rclcpp_action::Server<MoveToPose>::SharedPtr action_server_;
-
-    rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const MoveToPose::Goal> goal) {
-        (void)uuid;
-        return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
-    }
-
-    rclcpp_action::CancelResponse handle_cancel(const std::shared_ptr<GoalHandleMove> goal_handle) {
-        (void)goal_handle;
-        move_group_->stop();
-        return rclcpp_action::CancelResponse::ACCEPT;
-    }
-
-    void handle_accepted(const std::shared_ptr<GoalHandleMove> goal_handle) {
-        // Run execution in a separate thread to keep the node responsive
-        std::thread{std::bind(&AR4PoseActionServer::execute, this, goal_handle)}.detach();
-    }
-
-    void execute(const std::shared_ptr<GoalHandleMove> goal_handle) {
-        const auto goal = goal_handle->get_goal();
-        auto result = std::make_shared<MoveToPose::Result>();
-        auto feedback = std::make_shared<MoveToPose::Feedback>();
-
-        geometry_msgs::msg::Pose target_pose = goal->target_pose;
-
-        // --- 3. STRATEGY LOGIC ---
-        if (goal->strategy == "home") {
-            move_group_->setNamedTarget("home");
-            RCLCPP_INFO(this->get_logger(), "Strategy: Moving to HOME");
-        } 
-        else if (goal->strategy == "APPROACH_OFFSET") {
-            // Apply the 15cm Z-offset requested by your state machine
-            target_pose.position.z += 0.15; 
-            move_group_->setPoseTarget(target_pose);
-            RCLCPP_INFO(this->get_logger(), "Strategy: Approach with 15cm Offset");
-        }
-        else if (goal->strategy == "GRASP" || goal->strategy == "RELEASE") {
-            // Direct movement to exact pose (e.g., after visual servoing)
-            move_group_->setPoseTarget(target_pose);
-            RCLCPP_INFO(this->get_logger(), "Strategy: %s", goal->strategy.c_str());
-        }
-        else {
-            move_group_->setPoseTarget(target_pose);
-        }
-
-        // --- 4. PLANNING & EXECUTION ---
-        moveit::planning_interface::MoveGroupInterface::Plan my_plan;
-        bool success = (move_group_->plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
-
-        if (success) {
-            // In a real system, you could loop here and check distance for feedback
-            // For MoveIt, we usually trigger execute()
-            auto move_result = move_group_->execute(my_plan);
-            
-            if (move_result == moveit::core::MoveItErrorCode::SUCCESS) {
-                result->success = true;
-                goal_handle->succeed(result);
-                RCLCPP_INFO(this->get_logger(), "Move Complete!");
-            } else {
-                result->success = false;
-                goal_handle->abort(result);
-                RCLCPP_ERROR(this->get_logger(), "Execution failed!");
-            }
-        } else {
-            result->success = false;
-            goal_handle->abort(result);
-            RCLCPP_ERROR(this->get_logger(), "Planning failed!");
-        }
-    }
-};
-
-int main(int argc, char ** argv) {
+int main(int argc, char* argv[]) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<AR4PoseActionServer>();
-    
-    // Initialize move group after the node is shared
-    node->init_move_group();
-    
-    rclcpp::spin(node);
+    std::signal(SIGINT, signalHandler);
+
+    auto node = std::make_shared<rclcpp::Node>("AR4_tool_control_final");
+
+    tf2_ros::Buffer tf_buffer(node->get_clock());
+    tf2_ros::TransformListener tf_listener(tf_buffer);
+
+    auto logger = rclcpp::get_logger("AR4_tool_control_final");
+
+    MoveGroupInterface move_group_interface(node, "ar_manipulator");
+
+    move_group_interface.setMaxVelocityScalingFactor(0.7);
+    move_group_interface.setMaxAccelerationScalingFactor(0.3);
+    move_group_interface.setGoalPositionTolerance(0.001);
+    move_group_interface.setGoalOrientationTolerance(0.01);
+    move_group_interface.setPlanningTime(10.0);
+
+    // UPDATED NAMES BASED ON TF TREE
+    const std::string ee_link = "ar4_ee_link";    // Actual physical link 
+    const std::string ar4_base = "ar4_base_link";  // AR4 root 
+    const std::string abb_base = "base_link";      // ABB root
+    const double AR4_MAX_REACH = 0.6; 
+
+    double x=0, y=0, z=0;
+    double roll_deg=0, pitch_deg=0, yaw_deg=0;
+    char option=0;
+
+    while (rclcpp::ok() && running) {
+        rclcpp::spin_some(node);
+
+        auto current_state = move_group_interface.getCurrentState(1.0);
+        if (!current_state) {
+            RCLCPP_WARN(logger, "Waiting for robot state update...");
+            std::this_thread::sleep_for(500ms);
+            continue;
+        }
+
+        geometry_msgs::msg::PoseStamped curr_pose = move_group_interface.getCurrentPose(ee_link);
+        std::cout << "\n------------------------------------------------";
+        std::cout << "\nROBOT: AR4 | STATE: READY";
+        std::cout << "\nEE Position (world) -> X: " << curr_pose.pose.position.x 
+                  << " Y: " << curr_pose.pose.position.y 
+                  << " Z: " << curr_pose.pose.position.z;
+        std::cout << "\n------------------------------------------------";
+
+        std::cout << "\nHome (H), Pose (P), Quit (Q): ";
+        std::cin >> option;
+
+        if (option == 'H' || option == 'h') {
+            RCLCPP_INFO(logger, "Syncing state and homing joints...");
+            move_group_interface.setStartState(*current_state);
+            
+            std::vector<double> joint_group_positions = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+            move_group_interface.setJointValueTarget(joint_group_positions);
+
+            MoveGroupInterface::Plan msg;
+            if(static_cast<bool>(move_group_interface.plan(msg))) {
+                move_group_interface.execute(msg);
+            } else {
+                RCLCPP_ERROR(logger,"Homing failed!");
+            }
+        } 
+        else if (option == 'P' || option == 'p') {
+            std::cout << "\nEnter target relative to ABB base_link (x y z R P Y): ";
+            if (!(std::cin >> x >> y >> z >> roll_deg >> pitch_deg >> yaw_deg)) {
+                std::cout << "Invalid input.\n";
+                std::cin.clear();
+                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                continue;
+            }
+
+            double roll = roll_deg * M_PI / 180.0;
+            double pitch = pitch_deg * M_PI / 180.0;
+            double yaw = yaw_deg * M_PI / 180.0;
+            tf2::Quaternion q_target;
+            q_target.setRPY(roll, pitch, yaw);
+            q_target.normalize();
+
+            geometry_msgs::msg::PoseStamped target_in_abb;
+            target_in_abb.header.frame_id = abb_base; // Now using base_link
+            target_in_abb.header.stamp = node->now();
+            target_in_abb.pose.position.x = x;
+            target_in_abb.pose.position.y = y;
+            target_in_abb.pose.position.z = z;
+            target_in_abb.pose.orientation = tf2::toMsg(q_target);
+
+            geometry_msgs::msg::PoseStamped target_in_ar4;
+            try {
+                // Transform from ABB base_link to ar4_base_link
+                target_in_ar4 = tf_buffer.transform(target_in_abb, ar4_base, 1s);
+            } catch (const tf2::TransformException &ex) {
+                RCLCPP_ERROR(logger, "TF Error: %s", ex.what());
+                continue;
+            }
+
+            // SAFETY CHECK
+            double tx = target_in_ar4.pose.position.x;
+            double ty = target_in_ar4.pose.position.y;
+            double tz = target_in_ar4.pose.position.z;
+            double dist = std::sqrt(tx*tx + ty*ty + tz*tz);
+
+            RCLCPP_INFO(logger, "Calculated distance from AR4 base: %.3f meters", dist);
+
+            if (dist > AR4_MAX_REACH) {
+                RCLCPP_ERROR(logger, "OUT OF REACH! Distance %.2fm > limit %.2fm.", dist, AR4_MAX_REACH);
+                continue;
+            }
+
+            move_group_interface.setStartState(*current_state);
+            move_group_interface.clearPoseTargets();
+            move_group_interface.setPoseTarget(target_in_ar4, ee_link);
+
+            MoveGroupInterface::Plan plan;
+            if (static_cast<bool>(move_group_interface.plan(plan))) {
+                RCLCPP_INFO(logger, "Plan found. Executing...");
+                move_group_interface.execute(plan);
+            } else {
+                RCLCPP_ERROR(logger, "Planning failed! Check for collisions or IK singularities.");
+            }
+        }
+        else if (option == 'Q' || option == 'q') {
+            break;
+        }
+    }
+
     rclcpp::shutdown();
     return 0;
 }

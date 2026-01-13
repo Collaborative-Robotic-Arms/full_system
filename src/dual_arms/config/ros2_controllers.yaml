@@ -1,12 +1,12 @@
 # This config file is used by ros2_control
 controller_manager:
   ros__parameters:
-    update_rate: 100  # Hz
+    update_rate: 1000  # Hz
 
     ar4_trajectory_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
-    irb120_controller:
+    irb120_trajectory_controller: # Changed from irb120_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
     # dual_arms_controller:
@@ -33,8 +33,7 @@ ar4_trajectory_controller:
       - position
       - velocity
     allow_nonzero_velocity_at_trajectory_end: true
-irb120_controller:
-  ros__parameters:
+irb120_trajectory_controller: # Changed from irb120_controller  ros__parameters:
     joints:
       - joint_1
       - joint_2
