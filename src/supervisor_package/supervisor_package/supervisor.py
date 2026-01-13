@@ -3,27 +3,23 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
-from geometry_msgs.msg import Pose, Point, Quaternion
+from rclpy.executors import MultiThreadedExecutor
 from supervisor_package.srv import GetAssemblyPlan, DetectBricks
 from supervisor_package.action import MoveToPose, AlignToTarget, ExecuteTask
 
-
-def pose_from_point(point: Point, orientation: Quaternion = None) -> Pose:
-    """Convert a geometry_msgs Point to a Pose, with optional orientation."""
-    p = Pose()
-    p.position = point
-    if orientation:
-        p.orientation = orientation
-    else:
-        p.orientation.w = 1.0
-    return p
-
+# --- LOCAL IMPORTS ---
+from .gripper_manager import GripperManager
 
 class AssemblySupervisor(Node):
     def __init__(self):
         super().__init__('supervisor')
 
         self.cb_group = ReentrantCallbackGroup()
+        
+        # --- GRIPPER INITIALIZATION ---
+        self.declare_parameter('use_sim', True)
+        use_sim_value = self.get_parameter('use_sim').get_parameter_value().bool_value
+        self.gripper = GripperManager(self, use_sim=use_sim_value)
 
         # --- CLIENTS ---
         self.gui_client = self.create_client(GetAssemblyPlan, 'get_assembly_plan', callback_group=self.cb_group)
@@ -38,7 +34,6 @@ class AssemblySupervisor(Node):
         self.current_brick = None
         self.assembly_queue = []
 
-        # Start the state machine loop
         self.timer = self.create_timer(1.0, self.state_machine_loop, callback_group=self.cb_group)
 
     async def state_machine_loop(self):
@@ -51,6 +46,10 @@ class AssemblySupervisor(Node):
                 self.get_logger().info('Requesting Assembly Plan from GUI...')
                 while not self.gui_client.wait_for_service(timeout_sec=1.0):
                     self.get_logger().info('Waiting for GUI node...')
+
+                # Reset grippers at start
+                self.gripper.set_ar4_grip('OPEN')
+                self.gripper.set_abb_grip('OPEN')
 
                 req = GetAssemblyPlan.Request()
                 result = await self.gui_client.call_async(req)
@@ -87,11 +86,9 @@ class AssemblySupervisor(Node):
             elif self.state in ["EXECUTE_AR4_DIRECT", "AR4_PICK_FOR_HANDOVER"]:
                 self.get_logger().info(f'Starting AR4 Pick Sequence for {self.current_brick.id}')
 
-                # Step A: Approach with Z-Offset
-                pickup_pose = pose_from_point(self.current_brick.pickup_pose)
-
+                # Step A: Approach
                 goal_msg = MoveToPose.Goal()
-                goal_msg.target_pose = pickup_pose
+                goal_msg.target_pose = self.current_brick.pickup_pose 
                 goal_msg.strategy = "APPROACH_OFFSET"
                 await self.send_action_goal(self.ar4_point_client, goal_msg)
 
@@ -104,46 +101,26 @@ class AssemblySupervisor(Node):
                 # Step C: Lower and Grasp
                 self.get_logger().info('Lowering and Grasping...')
                 grasp_goal = MoveToPose.Goal()
-                grasp_goal.target_pose = pickup_pose
+                grasp_goal.target_pose = self.current_brick.pickup_pose 
                 grasp_goal.strategy = "GRASP"
                 await self.send_action_goal(self.ar4_point_client, grasp_goal)
+
+                # Close AR4 Gripper
+                self.gripper.set_ar4_grip('CLOSE')
 
                 self.state = "AR4_PLACE_ON_GRID" if self.state == "EXECUTE_AR4_DIRECT" else "HANDOVER_EXECUTION"
 
             elif self.state == "AR4_PLACE_ON_GRID":
-                self.get_logger().info('Computing grid placement...')
-                while not self.grid_place_client.wait_for_service(timeout_sec=1.0):
-                    self.get_logger().info('Waiting for grid placement service...')
+                self.get_logger().info('Moving AR4 to pre-calculated place_pose...')
 
-                CELL_SIZE = 0.05
-                offset = Point()
-                offset.x = self.current_brick.pickup_pose.x - self.current_brick.center_cell.col * CELL_SIZE
-                offset.y = self.current_brick.pickup_pose.y - self.current_brick.center_cell.row * CELL_SIZE
-                offset.z = self.current_brick.pickup_pose.z
-
-                req = ComputeGridPlacement.Request()
-                req.brick_type = self.current_brick.type
-                req.grasp_offset = offset
-                req.target_center = self.current_brick.center_cell
-
-                result = await self.grid_place_client.call_async(req)
-                if not result.success:
-                    self.get_logger().error('Grid placement failed!')
-                    self.state = "PROCESS_NEXT"
-                    return
-
-                # Lift above grid first
-                safe_pose = pose_from_stamped(result.place_pose)
-                safe_pose.position.z += 0.10
+                # Use direct place_pose from brick_processor
                 place_goal = MoveToPose.Goal()
-                place_goal.target_pose = safe_pose
+                place_goal.target_pose = self.current_brick.place_pose 
                 place_goal.strategy = "PLACE"
                 await self.send_action_goal(self.ar4_point_client, place_goal)
 
-                # Lower to final placement
-                final_pose = pose_from_stamped(result.place_pose)
-                place_goal.target_pose = final_pose
-                await self.send_action_goal(self.ar4_point_client, place_goal)
+                # Open AR4 Gripper
+                self.gripper.set_ar4_grip('OPEN')
 
                 self.state = "PROCESS_NEXT"
 
@@ -155,40 +132,24 @@ class AssemblySupervisor(Node):
 
                 abb_pick_goal = ExecuteTask.Goal()
                 abb_pick_goal.task_type = "PICK"
-                abb_pick_goal.target_pose = pose_from_point(self.current_brick.pickup_pose)
-
+                abb_pick_goal.target_pose = self.current_brick.pickup_pose 
                 await self.send_action_goal(self.abb_client, abb_pick_goal)
+
+                # Close ABB Gripper
+                self.gripper.set_abb_grip('CLOSE')
 
                 self.state = "EXECUTE_ABB_PLACE"
                 
             elif self.state == "EXECUTE_ABB_PLACE":
-                self.get_logger().info('Computing ABB grid placement...')
-
-                while not self.grid_place_client.wait_for_service(timeout_sec=1.0):
-                    self.get_logger().info('Waiting for grid placement service...')
-
-                CELL_SIZE = 0.05
-                offset = Point()
-                offset.x = self.current_brick.pickup_pose.x - self.current_brick.center_cell.col * CELL_SIZE
-                offset.y = self.current_brick.pickup_pose.y - self.current_brick.center_cell.row * CELL_SIZE
-                offset.z = self.current_brick.pickup_pose.z
-
-                req = ComputeGridPlacement.Request()
-                req.brick_type = self.current_brick.type
-                req.grasp_offset = offset
-                req.target_center = self.current_brick.center_cell
-
-                result = await self.grid_place_client.call_async(req)
-                if not result.success:
-                    self.get_logger().error('ABB grid placement failed!')
-                    self.state = "PROCESS_NEXT"
-                    return
+                self.get_logger().info('Moving ABB to pre-calculated place_pose...')
 
                 abb_place_goal = ExecuteTask.Goal()
                 abb_place_goal.task_type = "PLACE"
-                abb_place_goal.target_pose = pose_from_stamped(result.place_pose)
-
+                abb_place_goal.target_pose = self.current_brick.place_pose 
                 await self.send_action_goal(self.abb_client, abb_place_goal)
+
+                # Open ABB Gripper
+                self.gripper.set_abb_grip('OPEN')
 
                 self.state = "PROCESS_NEXT"
                 
@@ -217,7 +178,11 @@ class AssemblySupervisor(Node):
                 abb_goal.target_pose = handover_pose
                 await self.send_action_goal(self.abb_client, abb_goal)
 
+                # Close ABB Gripper
+                self.gripper.set_abb_grip('CLOSE')
+
                 # AR4 releases
+                self.gripper.set_ar4_grip('OPEN')
                 release_goal = MoveToPose.Goal()
                 release_goal.strategy = "RELEASE"
                 await self.send_action_goal(self.ar4_point_client, release_goal)
@@ -231,41 +196,29 @@ class AssemblySupervisor(Node):
             self.timer = self.create_timer(0.1, self.state_machine_loop, callback_group=self.cb_group)
 
     async def send_action_goal(self, client, goal_msg):
-        """Helper to send goal and wait for result"""
         if not client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().error('Action server not available!')
             return False
-
-        # Send goal and await ClientGoalHandle
         send_goal_future = client.send_goal_async(goal_msg)
         goal_handle = await send_goal_future
-
         if not goal_handle.accepted:
-            self.get_logger().info('Goal rejected')
             return False
-
-        # Get the result
         result_future = goal_handle.get_result_async()
         result = await result_future
         return result.result
-
 
 def main(args=None):
     rclpy.init(args=args)
     node = AssemblySupervisor()
 
-    from rclpy.executors import MultiThreadedExecutor
     executor = MultiThreadedExecutor()
     executor.add_node(node)
 
     try:
         executor.spin()
-    except KeyboardInterrupt:
-        pass
+    except KeyboardInterrupt: pass
     finally:
         node.destroy_node()
         rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
