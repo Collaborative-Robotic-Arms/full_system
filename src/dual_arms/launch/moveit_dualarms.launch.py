@@ -144,6 +144,15 @@ def generate_launch_description():
         parameters=[{"use_sim_time": True}]
     )
 
+    planning_scene_monitor_parameters = {
+        "publish_planning_scene": True,
+        "publish_geometry_updates": True,
+        "publish_state_updates": True,
+        "publish_transforms_updates": True,
+        # Added due to https://github.com/moveit/moveit2_tutorials/issues/528
+        "publish_robot_description_semantic": True,
+    }
+
     move_group_node = Node(
         package="moveit_ros_move_group",
         executable="move_group",
@@ -155,7 +164,8 @@ def generate_launch_description():
             robot_description_planning,
             ompl_planning_pipeline_config,
             trajectory_execution,
-            moveit_controllers_yaml_content, 
+            moveit_controllers_yaml_content,
+            planning_scene_monitor_parameters,
             {"moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager"},
             planning_scene_monitor_parameters,
             {"use_sim_time": True},
