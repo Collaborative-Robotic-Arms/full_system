@@ -15,11 +15,18 @@ from dual_arms_msgs.msg import Brick as CamBrick
 # 3. Destination: Supervisor Service and Message Types
 from supervisor_package.srv import GetAssemblyPlan 
 from supervisor_package.msg import SuperBrick as SupervisorBrick 
+from tf2_ros import TransformException
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+import tf2_geometry_msgs 
+from geometry_msgs.msg import Pose
 
 class AssemblyAllocator(Node):
     def __init__(self):
         super().__init__('assembly_allocator')
         
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
         # --- INPUTS ---
         # Subscribes to the Brick Processor (GUI World Coords)
         self.gui_sub = self.create_subscription(
@@ -49,6 +56,30 @@ class AssemblyAllocator(Node):
         # Matching Timer: runs at 2Hz
         self.timer = self.create_timer(0.5, self.validate_and_assign)
         self.get_logger().info('--- ASSEMBLY ALLOCATOR (INTEGRATED VERSION) READY ---')
+
+    def transform_point_to_abb(self, x, y, z):
+        """Converts a coordinate from the camera frame to the ABB base frame using TF2."""
+        # Create a Pose object for the incoming camera coordinates
+        camera_pose = Pose()
+        camera_pose.position.x = x
+        camera_pose.position.y = y
+        camera_pose.position.z = z
+        camera_pose.orientation.w = 1.0 # Standard identity orientation
+
+        try:
+            # Lookup the transform defined in your dual_arms_with_environment.xacro
+            t = self.tf_buffer.lookup_transform(
+                'abb_base_link', 
+                'camera_color_optical_frame', 
+                rclpy.time.Time()) 
+
+            # Apply the transform to get coordinates in the ABB frame
+            transformed_pose = tf2_geometry_msgs.do_transform_pose(camera_pose, t)
+            return transformed_pose.position
+
+        except TransformException as ex:
+            self.get_logger().error(f'TF2 Failure in Allocator: {ex}')
+            return camera_pose.position # Fallback to original coordinates
 
     def gui_callback(self, msg):
         """Stores the list of bricks requested by the GUI."""
@@ -114,12 +145,24 @@ class AssemblyAllocator(Node):
             
             for idx, source in enumerate(supply_pool):
                 if source.type == target_enum_type:
-                    # --- DYNAMIC OVERWRITE ---
-                    # We take the ID and coordinates from the CAMERA
+
+                # ----DYNAMICE_OVERWRITE_OF_PICKUP_POSE----
+                    abb_point = self.transform_point_to_abb(
+                        source.pose.position.x, 
+                        source.pose.position.y, 
+                        source.pose.position.z
+                    )
+                    
                     target.id = str(source.id)
-                    target.pickup_pose.x = float(source.pose.position.x)
-                    target.pickup_pose.y = float(source.pose.position.y)
-                    target.pickup_pose.z = float(source.pose.position.z)
+                    target.pickup_pose.x = abb_point.x
+                    target.pickup_pose.y = abb_point.y
+                    target.pickup_pose.z = abb_point.z
+
+                    # # We take the ID and coordinates from the CAMERA
+                    # target.id = str(source.id)
+                    # target.pickup_pose.x = float(source.pose.position.x)
+                    # target.pickup_pose.y = float(source.pose.position.y)
+                    # target.pickup_pose.z = float(source.pose.position.z)
 
                     # Determine robot side
                     if source.side == CamBrick.ABB:

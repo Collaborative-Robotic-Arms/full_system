@@ -5,8 +5,7 @@
     <!-- These map the tool links to their corresponding planning groups. -->
     
     <!-- AR4 End-Effector: Uses the ar_gripper group attached to the ar_manipulator arm -->
-    <end_effector name="ar4_eef" parent_link="ar4_ee_link" group="ar_gripper" parent_group="ar_manipulator"/>
-    
+    <end_effector name="ar4_eef" parent_link="ar4_ee_link" group="ar_gripper" parent_group="ar_manipulator"/>    
     <!-- IRB120 End-Effector: Uses the irb120_gripper group attached to the irb120_arm -->
     <end_effector name="irb120_eef" parent_link="tool0" group="irb120_gripper" parent_group="irb120_arm"/>
 
