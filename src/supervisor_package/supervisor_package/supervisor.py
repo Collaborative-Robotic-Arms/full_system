@@ -4,15 +4,22 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
+import tf2_geometry_msgs # Required for do_transform_pose
 
 # Custom Interfaces
-from supervisor_package.srv import GetAssemblyPlan, DetectBricks
-from supervisor_package.action import MoveToPose, AlignToTarget, ExecuteTask
+from supervisor_package.srv import GetAssemblyPlan
+from supervisor_package.action import MoveToPose, AlignToTarget
 from dual_arms_msgs.msg import GraspPoint 
-from dual_arms_msgs.srv import GetGrasp  
+from dual_arms_msgs.srv import GetGrasp , DetectBricks
+from geometry_msgs.msg import TransformStamped, Pose # Added Pose to imports
+from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
+from dual_arms_msgs.action import ExecuteTask
 
-# --- LOCAL IMPORTS ---
-from .gripper_manager import GripperManager
+# --- NEW TF2 IMPORTS ---
+from tf2_ros import TransformException
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+# -----------------------
 
 class AssemblySupervisor(Node):
     def __init__(self):
@@ -23,7 +30,36 @@ class AssemblySupervisor(Node):
         # --- GRIPPER INITIALIZATION ---
         self.declare_parameter('use_sim', True)
         use_sim_value = self.get_parameter('use_sim').get_parameter_value().bool_value
-        self.gripper = GripperManager(self, use_sim=use_sim_value)
+        # self.gripper = GripperManager(self, use_sim=use_sim_value)
+
+        # --- TF2 INITIALIZATION ---
+        # Broadcaster: Defines the static relationship between the robot base and camera lens
+        self.static_broadcaster = StaticTransformBroadcaster(self)
+        static_transform = TransformStamped()
+        
+        static_transform.header.stamp = self.get_clock().now().to_msg()
+        static_transform.header.frame_id = 'base_link'      # Parent Frame
+        static_transform.child_frame_id = 'camera_link' # Child Frame
+
+        # # Measured physical offsets in meters
+        # static_transform.transform.translation.x = -0.05
+        # static_transform.transform.translation.y = 0.67
+        # static_transform.transform.translation.z = 0.769
+
+        # # Identity rotation (aligned axes)
+        # static_transform.transform.rotation.x = 0.0
+        # static_transform.transform.rotation.y = 0.0
+        # static_transform.transform.rotation.z = 0.0
+        # static_transform.transform.rotation.w = 1.0
+
+        # self.static_broadcaster.sendTransform(static_transform)
+
+        # Listener: Setup the buffer to receive and calculate the actual transformations
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        
+        self.get_logger().info('TF2 Static Broadcaster and Listener ready.')
+        # ---------------------------
 
         # --- CLIENTS ---
         self.gui_client = self.create_client(GetAssemblyPlan, 'get_assembly_plan', callback_group=self.cb_group)
@@ -32,7 +68,7 @@ class AssemblySupervisor(Node):
         self.ar4_vs_client = ActionClient(self, AlignToTarget, 'ar4_visual_servo', callback_group=self.cb_group)
         self.abb_client = ActionClient(self, ExecuteTask, 'abb_control', callback_group=self.cb_group)
         self.grasp_client = ActionClient(self, MoveToPose, 'grasp_pipeline', callback_group=self.cb_group)
-        self.grasp_pipeline_client = self.create_client(GetGrasp, 'get_grasp', callback_group=self.cb_group) #
+        self.grasp_pipeline_client = self.create_client(GetGrasp, 'grasp/get_grasp_point', callback_group=self.cb_group) 
 
         self.get_logger().info('Supervisor Initialized. Waiting for services...')
 
@@ -44,6 +80,26 @@ class AssemblySupervisor(Node):
 
         self.timer = self.create_timer(1.0, self.state_machine_loop, callback_group=self.cb_group)
 
+    # --- NEW HELPER METHOD ---
+    def transform_pose_to_abb(self, input_pose):
+        """Standard TF2 transformation from Camera frame to ABB base_link."""
+        try:
+            # Lookup the transformation broadcasted in __init__
+            t = self.tf_buffer.lookup_transform(
+                'base_link', 
+                'camera_color_optical_frame', 
+                rclpy.time.Time()) # Get the latest available transform
+
+            # Use tf2_geometry_msgs to translate/rotate the pose
+            transformed_pose = tf2_geometry_msgs.do_transform_pose(input_pose, t)
+
+            return transformed_pose
+
+        except TransformException as ex:
+            self.get_logger().error(f'TF2 Error: {ex}')
+            return input_pose # Fallback to original pose
+    # -------------------------
+
     async def state_machine_loop(self):
         self.timer.cancel()
         try:
@@ -52,25 +108,46 @@ class AssemblySupervisor(Node):
             # =========================
             if self.state == "INIT":
                 self.get_logger().info('Requesting Assembly Plan from GUI...')
-                while not self.gui_client.wait_for_service(timeout_sec=1.0):
+                
+                # Check service availability without blocking the executor indefinitely
+                if not self.gui_client.wait_for_service(timeout_sec=1.0):
                     self.get_logger().info('Waiting for GUI node...')
-
-                # Reset grippers at start to known state
-                self.gripper.set_ar4_grip('OPEN')
-                self.gripper.set_abb_grip('OPEN')
+                    self.timer = self.create_timer(2.0, self.state_machine_loop, callback_group=self.cb_group)
+                    return
 
                 req = GetAssemblyPlan.Request()
                 result = await self.gui_client.call_async(req)
-                self.assembly_queue = result.plan
-                self.state = "DETECT"
+                
+                # --- FIX: Only proceed if the plan actually contains bricks ---
+                if result is not None and len(result.plan) > 0:
+                    self.assembly_queue = result.plan
+                    self.get_logger().info(f'Plan received! {len(self.assembly_queue)} bricks to process.')
+                    self.state = "DETECT"
+                else:
+                    self.get_logger().warn('Assembly plan is empty or service failed. Retrying in 2 seconds...')
+                    # Keep state as "INIT" and retry after a delay
+                    self.timer = self.create_timer(2.0, self.state_machine_loop, callback_group=self.cb_group)
+                    return
 
             elif self.state == "DETECT":
                 self.get_logger().info('Requesting Camera Detection...')
+                
+                if not self.camera_client.wait_for_service(timeout_sec=1.0):
+                    self.get_logger().error('Camera Detection service not available!')
+                    self.timer = self.create_timer(2.0, self.state_machine_loop, callback_group=self.cb_group)
+                    return
+
                 req = DetectBricks.Request()
-                # Detection result now includes bricks (with GraspPoint) and handover_pose
                 result = await self.camera_client.call_async(req)
+                
+                # Transform each brick to the ABB base frame
+                for brick in result.bricks:
+                    brick.pose = self.transform_pose_to_abb(brick.pose)
                 self.detected_bricks = result.bricks
-                self.handover_pose = result.handover_pose
+                
+                # Transform handover pose to the ABB base frame
+                self.handover_pose = self.transform_pose_to_abb(result.handover_pose)
+
                 self.state = "PROCESS_NEXT"
 
             # =========================
@@ -103,9 +180,23 @@ class AssemblySupervisor(Node):
                 grasp_result = await self.grasp_pipeline_client.call_async(grasp_req) # 
 
                 if grasp_result.success:
-                    # Use the pose from the GraspPoint message returned by the service 
-                    self.current_grasp_point = grasp_result.grasp_point
-                    self.get_logger().info(f'Grasp retrieved. Quality: {self.current_grasp_point.quality}') # 
+                    # --- MODIFICATION: Transform Grasp point ---
+                    # self.current_grasp_point = grasp_result.grasp_point
+                    
+                    # Capture and transform the specific grasp pose to ABB base link
+                    raw_grasp = grasp_result.grasp_point
+                    raw_grasp.pose = self.transform_pose_to_abb(raw_grasp.pose)
+                    raw_grasp.pose.position.z = 0.22
+
+                    self.current_grasp_point = raw_grasp
+
+                    self.current_grasp_point.pose.orientation.x = raw_grasp.pose.orientation.w
+                    self.current_grasp_point.pose.orientation.y = raw_grasp.pose.orientation.z
+                    self.current_grasp_point.pose.orientation.z = 0.0
+                    self.current_grasp_point.pose.orientation.w = 0.0
+                    # --------------------------------------------
+
+                    self.get_logger().info(f'Grasp retrieved and transformed. Quality: {self.current_grasp_point.quality}') # 
                     
                     # Branch to the correct arm based on current_brick location 
                     if self.current_brick.location == 1:
@@ -143,7 +234,7 @@ class AssemblySupervisor(Node):
                 grasp_goal.strategy = "GRASP"
                 await self.send_action_goal(self.ar4_point_client, grasp_goal)
 
-                self.gripper.set_ar4_grip('CLOSE')
+                # self.gripper.set_ar4_grip('CLOSE')
                 self.state = "AR4_PLACE_ON_GRID" if self.state == "EXECUTE_AR4_DIRECT" else "HANDOVER_EXECUTION"
 
             elif self.state == "AR4_PLACE_ON_GRID":
@@ -152,7 +243,7 @@ class AssemblySupervisor(Node):
                 place_goal.strategy = "PLACE"
                 await self.send_action_goal(self.ar4_point_client, place_goal)
 
-                self.gripper.set_ar4_grip('OPEN')
+                # self.gripper.set_ar4_grip('OPEN')
                 self.state = "PROCESS_NEXT"
 
             # =========================
@@ -164,7 +255,6 @@ class AssemblySupervisor(Node):
                 abb_pick_goal = ExecuteTask.Goal()
                 abb_pick_goal.task_type = "PICK"
                 
-                # MODIFICATION: Use the GraspPoint pose for the ABB reach
                 if self.current_grasp_point:
                     self.get_logger().info('Targeting GraspPoint pose.')
                     abb_pick_goal.target_pose = self.current_grasp_point.pose
@@ -178,6 +268,8 @@ class AssemblySupervisor(Node):
                 abb_place_goal = ExecuteTask.Goal()
                 abb_place_goal.task_type = "PLACE"
                 abb_place_goal.target_pose = self.current_brick.place_pose 
+
+                abb_place_goal.target_pose.pose.position.z = 0.24
                 await self.send_action_goal(self.abb_client, abb_place_goal)
                 self.state = "PROCESS_NEXT"
                 
@@ -197,11 +289,10 @@ class AssemblySupervisor(Node):
                 # ABB Task Server handles Open -> Move -> Close sequence
                 abb_goal = ExecuteTask.Goal()
                 abb_goal.task_type = "PICK_FROM_HANDOVER"
-                # Use the handover_pose received during the DETECT phase
                 abb_goal.target_pose = self.handover_pose 
                 await self.send_action_goal(self.abb_client, abb_goal)
 
-                self.gripper.set_ar4_grip('OPEN')
+                # self.gripper.set_ar4_grip('OPEN')
                 release_goal = MoveToPose.Goal()
                 release_goal.strategy = "RELEASE"
                 await self.send_action_goal(self.ar4_point_client, release_goal)

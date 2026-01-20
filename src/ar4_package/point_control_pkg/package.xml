@@ -17,6 +17,7 @@
   <depend>moveit_msgs</depend>
   <depend>supervisor_package</depend>
   <depend>rclcpp_action</depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
   
 
   <exec_depend>launch</exec_depend>

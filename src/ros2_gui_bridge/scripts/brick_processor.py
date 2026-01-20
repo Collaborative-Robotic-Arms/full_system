@@ -7,12 +7,12 @@ from geometry_msgs.msg import Point
 import json
 
 # Configuration Constants
-CELL_SIZE = 0.05  # 5cm per cell
-Z_HEIGHT = 0.0    # Default placement height
+CELL_SIZE = 0.03  # 5cm per cell
+Z_HEIGHT = 0.23   # Default placement height
 
 # World Frame Offsets
-WORLD_X_OFFSET = 60.0
-WORLD_Y_OFFSET = 50.0
+WORLD_X_OFFSET = 0.51
+WORLD_Y_OFFSET = -0.12
 
 class BrickProcessor(Node):
     def __init__(self):

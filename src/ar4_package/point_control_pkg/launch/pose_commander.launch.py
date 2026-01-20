@@ -14,7 +14,7 @@ def generate_launch_description():
     robot_description_config = xacro.process_file(urdf_path)
     robot_description = {'robot_description': robot_description_config.toxml()}
 
-    # 3. Read SRDF (using cat/open)
+    # 3. Read SRDF
     with open(srdf_path, 'r') as f:
         semantic_content = f.read()
     robot_description_semantic = {'robot_description_semantic': semantic_content}
@@ -29,18 +29,20 @@ def generate_launch_description():
     }
 
     # 5. The Node
-    pose_commander_node = Node(
-        package='point_control_pkg',
-        executable='pose_commander',
-        name='AR4_tool_control_final',
-        output='screen',
-        emulate_tty=True,
-        parameters=[
-            robot_description,
-            robot_description_semantic,
-            kinematics_yaml,
-            {'use_sim_time': True}
-        ]
-    )
-
-    return LaunchDescription([pose_commander_node])
+    return LaunchDescription([
+        Node(
+            package='point_control_pkg',
+            executable='pose_commander_action',
+            name='AR4_tool_control_final',
+            output='screen',
+            emulate_tty=True,
+            parameters=[
+                robot_description,
+                robot_description_semantic,
+                kinematics_yaml,
+                {'use_sim_time': True},
+                # Relaxed tolerance for long-running simulations
+                {'joint_state_monitor.max_joint_state_age': 0.1} 
+            ]
+        )
+    ])
