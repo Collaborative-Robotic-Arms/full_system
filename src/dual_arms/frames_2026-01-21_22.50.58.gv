@@ -1,0 +1,38 @@
+digraph G {
+"ar4_gripper_base_link" -> "ar4_gripper_jaw1_link"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"ar4_ee_link" -> "ar4_gripper_base_link"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"ar4_gripper_base_link" -> "ar4_gripper_jaw2_link"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"ar4_base_link" -> "ar4_link_1"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"ar4_table" -> "ar4_base_link"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"ar4_link_1" -> "ar4_link_2"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"ar4_link_2" -> "ar4_link_3"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"ar4_link_3" -> "ar4_link_4"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"ar4_link_4" -> "ar4_link_5"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"ar4_link_5" -> "ar4_link_6"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"gripper_base_link" -> "gripper_ABB_Gripper_Finger_1"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"tool0" -> "gripper_base_link"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"gripper_base_link" -> "gripper_ABB_Gripper_Finger_2"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"base_link" -> "link_1"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"abb_table" -> "base_link"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"link_1" -> "link_2"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"link_2" -> "link_3"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"link_3" -> "link_4"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"link_4" -> "link_5"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"link_5" -> "link_6"[label=" Broadcaster: default_authority\nAverage rate: 20.19\nBuffer length: 4.854\nMost recent transform: 42.462\nOldest transform: 37.608\n"];
+"ar4_camera_fixation" -> "ar4_camera_link"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"ar4_link_6" -> "ar4_ee_link"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"abb_table" -> "ar4_table"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"world" -> "abb_table"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"ar4_ee_link" -> "ar4_laser_point"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"base_link" -> "base"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"abb_table" -> "camera"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"ar4_ee_link" -> "ar4_camera_fixation"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"camera" -> "camera_optical_frame"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"flange" -> "tool0"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"link_6" -> "flange"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"world" -> "aruco_target_frame"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1769028658.624223"[ shape=plaintext ] ;
+}->"world";
+}
