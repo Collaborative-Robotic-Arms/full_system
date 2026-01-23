@@ -198,8 +198,8 @@ ar_manipulator:
     - SPARSkConfigDefault
     - SPARStwokConfigDefault
   workspace_parameters:
-    min_corner: [0.0, -2.0, -5.0]
-    max_corner: [4.0, 4.0, 0.1]
+    min_corner: [-10.0 ,-10.0, -10.0]
+    max_corner: [10.0 ,10.0, 10.0]
     header:
       frame_id: world
 
