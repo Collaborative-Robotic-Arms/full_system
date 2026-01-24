@@ -1,3 +1,31 @@
 {
-    "cmake.sourceDirectory": "/home/yahia-raouf/CRSBA_ws/full_system/build/supervisor_package/supervisor_package__py"
+    "ROS2.distro": "jazzy",
+    "python.autoComplete.extraPaths": [
+        "/home/yahia-raouf/full_system/install/supervisor_package/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/ros2srrc_data/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/ros2_robotiqgripper/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/ros2_gui_bridge/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/gui_package/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/cam_package/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/abb_endeffector_control/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/abb_robot_msgs/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/abb_rapid_sm_addin_msgs/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/abb_rapid_msgs/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/abb_egm_msgs/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/yahia-raouf/full_system/install/supervisor_package/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/ros2srrc_data/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/ros2_robotiqgripper/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/ros2_gui_bridge/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/gui_package/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/cam_package/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/abb_endeffector_control/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/abb_robot_msgs/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/abb_rapid_sm_addin_msgs/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/abb_rapid_msgs/lib/python3.12/site-packages",
+        "/home/yahia-raouf/full_system/install/abb_egm_msgs/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ]
 }
