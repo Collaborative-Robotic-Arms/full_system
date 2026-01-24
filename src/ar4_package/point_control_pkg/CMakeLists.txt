@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 project(point_control_pkg)
 
-# Set C++ standard
+# ==========================================================
+# C++ standard
+# ==========================================================
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 17)
 endif()
@@ -17,44 +19,30 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(rosidl_default_generators REQUIRED)
-
-# (Optional, keep only if really used)
-find_package(supervisor_package REQUIRED)
-
-# ==========================================================
-# Generate Action Interfaces
-# ==========================================================
-rosidl_generate_interfaces(${PROJECT_NAME}
-  "action/MoveToPose.action"
-  DEPENDENCIES geometry_msgs
-)
-
-# This is REQUIRED so the generated interfaces are usable
-ament_export_dependencies(rosidl_default_runtime)
 
 # ==========================================================
 # Include directories
 # ==========================================================
-include_directories(include)
+include_directories(
+  include
+)
 
-# Fix for possible nested control_msgs headers (kept from original)
+# Fix for nested control_msgs headers (harmless, keep it)
 if(EXISTS "/opt/ros/jazzy/include/control_msgs/control_msgs/msg/joint_jog.hpp")
   message(WARNING "control_msgs include path appears nested, adding manual include directory.")
   include_directories(/opt/ros/jazzy/include/control_msgs/control_msgs)
 endif()
 
 # ==========================================================
-# Executables
+# Executable
 # ==========================================================
-
-# NEW action-based commander
-add_executable(pose_commander_action src/pose_commander_action.cpp)
+add_executable(pose_commander_action
+  src/pose_commander.cpp
+)
 
 # ==========================================================
-# Link dependencies
+# Link ROS dependencies
 # ==========================================================
-
 ament_target_dependencies(pose_commander_action
   rclcpp
   rclcpp_action
@@ -65,13 +53,8 @@ ament_target_dependencies(pose_commander_action
   geometry_msgs
 )
 
-# Link generated action interfaces
-rosidl_target_interfaces(pose_commander_action
-  ${PROJECT_NAME} "rosidl_typesupport_cpp"
-)
-
 # ==========================================================
-# Install targets
+# Install
 # ==========================================================
 install(TARGETS
   pose_commander_action
@@ -81,10 +64,6 @@ install(TARGETS
 install(PROGRAMS
   scripts/jog_servo.py
   DESTINATION lib/${PROJECT_NAME}
-)
-
-install(DIRECTORY launch
-  DESTINATION share/${PROJECT_NAME}/
 )
 
 ament_package()
