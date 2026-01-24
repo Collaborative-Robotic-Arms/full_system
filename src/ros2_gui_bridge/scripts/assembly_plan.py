@@ -69,7 +69,7 @@ class AssemblyAllocator(Node):
         try:
             # Lookup the transform defined in your dual_arms_with_environment.xacro
             t = self.tf_buffer.lookup_transform(
-                'abb_base_link', 
+                'base_link', 
                 'camera_color_optical_frame', 
                 rclpy.time.Time()) 
 
