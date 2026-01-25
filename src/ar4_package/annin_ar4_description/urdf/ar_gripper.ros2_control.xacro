@@ -31,7 +31,7 @@
           <param name="initial_value">0.0</param>
         </state_interface>
       </joint>
-      <joint name="${tf_prefix}gripper_jaw2_joint">
+      <!-- <joint name="${tf_prefix}gripper_jaw2_joint">
         <param name="mimic">${tf_prefix}gripper_jaw1_joint</param>
         <param name="multiplier">1</param>
         <state_interface name="position">
@@ -40,7 +40,7 @@
         <state_interface name="velocity">
           <param name="initial_value">0.0</param>
         </state_interface>
-      </joint>
+      </joint> -->
 
     </ros2_control>
   </xacro:macro>
