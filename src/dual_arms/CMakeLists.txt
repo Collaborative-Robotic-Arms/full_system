@@ -30,6 +30,9 @@ find_package(controller_manager REQUIRED)
 # =====================================================
 find_package(ros_gz_sim REQUIRED)
 find_package(ros_gz_bridge REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 # =====================================================
 # 🔹 Common Utilities
@@ -65,6 +68,7 @@ find_package(ros2_robotiqgripper REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(ros2srrc_execution REQUIRED)
 find_package(ros2srrc_robots REQUIRED)
+find_package(supervisor_package REQUIRED)
 
 # =====================================================
 # 🔹 Include Directories (SRRC logic preserved)
@@ -146,12 +150,30 @@ ament_target_dependencies(
   geometry_msgs
 )
 
+add_executable(ar4_pose_server src/ar4_pose_server.cpp)
+ament_target_dependencies(
+  ar4_pose_server
+  rclcpp
+  rclcpp_action
+  geometry_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  moveit_ros_planning_interface
+  supervisor_package
+)
+
 add_executable(AR4_pose_commander src/AR4_pose_commander.cpp)
 ament_target_dependencies(
   AR4_pose_commander
   rclcpp
-  moveit_ros_planning_interface
+  rclcpp_action
   geometry_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  moveit_ros_planning_interface
+  supervisor_package
 )
 
 # =====================================================
@@ -164,6 +186,7 @@ install(
   robpose
   dual_arms_controller
   AR4_pose_commander
+  ar4_pose_server
   DESTINATION lib/${PROJECT_NAME}
 )
 
