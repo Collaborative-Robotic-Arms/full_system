@@ -40,8 +40,8 @@ class AssemblySupervisor(Node):
         static_transform = TransformStamped()
         
         static_transform.header.stamp = self.get_clock().now().to_msg()
-        static_transform.header.frame_id = 'base_link'      # Parent Frame
-        static_transform.child_frame_id = 'camera_link' # Child Frame
+        static_transform.header.frame_id = 'ar4_base_link'      # Parent Frame
+        static_transform.child_frame_id = 'ar4_camera_link' # Child Frame
 
         # # Measured physical offsets in meters
         # static_transform.transform.translation.x = -0.05

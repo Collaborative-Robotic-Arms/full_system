@@ -13,12 +13,10 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from std_msgs.msg import Int32
 from sensor_msgs.msg import Image, CameraInfo
 from vision_msgs.msg import Detection2DArray
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped,Point
 from cv_bridge import CvBridge
 
 from dual_arms_msgs.msg import GraspPoint  
-from dual_arms_msgs.srv import GetGrasp
-import threading
 
 try:
     from brick_grasping_model.models import SwinGraspNoWidth, ResNetUNetGraspNoWidth
@@ -91,27 +89,16 @@ class RosGraspNode(Node):
             depth=1
         )
 
-        self.latest_grasp = None
-        self.latest_grasp_lock = threading.Lock()
-        self.grasp_ready_event = threading.Event()
-        self.detections:Detection2DArray = None
-
         # --- Parameters ---
-        self.declare_parameter('ckpt_path', '/home/mohamed/gp_ws/src/detection_grasping/brick_grasping_model/weights/BEST.pth')
+        self.declare_parameter('ckpt_path', '/home/omar-magdy/gp_ws/src/detection_grasping/brick_grasping_model/weights/BEST.pth')
         self.declare_parameter('arch', 'swin_tiny')
         self.declare_parameter('input_size', 160)
         self.declare_parameter('use_depth', True)
         self.declare_parameter('use_rgb', True)
-
         self.declare_parameter('rgb_topic', '/environment_camera/image_raw')
         self.declare_parameter('depth_topic', '/environment_camera/depth_image')
-        self.declare_parameter('camera_info_topic', '/environment_camera/camera_info')
-
-        # self.declare_parameter('rgb_topic', '/camera/camera/color/image_raw')
-        # self.declare_parameter('depth_topic', '/camera/camera/aligned_depth_to_color/image_raw')
-        # self.declare_parameter('camera_info_topic', '/camera/camera/color/camera_info')
-
         self.declare_parameter('dets_topic', '/yolo/detections')
+        self.declare_parameter('camera_info_topic', '/environment_camera/camera_info')
         self.declare_parameter('camera_frame', 'camera_color_optical_frame')
         self.declare_parameter('depth_scale', 0.001)
         self.declare_parameter('detection_debug', '/yolo/annotated_image')
@@ -156,22 +143,13 @@ class RosGraspNode(Node):
         self.depth_sub = self.create_subscription(Image, depth_topic, self.depth_callback, qos)
         self.dets_sub = self.create_subscription(Detection2DArray, dets_topic, self.dets_callback, 10)
         self.cam_info_sub = self.create_subscription(CameraInfo, cam_info_topic, self.cam_info_callback, 10)
-        
         self.target_sub = self.create_subscription(Int32, target_topic, self.target_index_callback, 10)
 
         # Outputs
         self.vis_pub = self.create_publisher(Image, '/grasp/result_image', 10)
-        
-        # --- CHANGED: Using Custom Message Type ---
         self.pose_pub = self.create_publisher(GraspPoint, '/grasp/result', 10)
-        
+        self.pixel_pub = self.create_publisher(Point, '/grasp/pixel_coords', 10)        
         self.pub_debug_q = self.create_publisher(Image, 'grasp/debug/quality', 10)
-
-        self.grasp_srv = self.create_service(
-            GetGrasp,
-            '/grasp/get_grasp_point',
-            self.handle_get_grasp
-        )
 
         # Buffers
         self.last_rgb = None
@@ -186,30 +164,10 @@ class RosGraspNode(Node):
         self.get_logger().info("Grasp Node Initialized. Waiting for target index...")
 
     # --- Callbacks ---
-    def handle_get_grasp(self, request, response):
-        self.get_logger().info(f"Grasp service requested for brick ID: {request.brick_index}")
-
-        # Set target brick
-        self.target_brick_idx = int(request.brick_index)
-
-        # Process grasp
-        graspPoint = self.process_grasp()
-
-        if graspPoint is None:
-            self.get_logger().warn("No valid grasp found.")
-            response.success = False
-            return response
-
-        response.grasp_point = graspPoint
-        response.success = True
-
-        return response
 
     def target_index_callback(self, msg):
         prev_target = self.target_brick_idx
         self.target_brick_idx = msg.data
-
-        self.process_grasp()
         if prev_target != self.target_brick_idx:
             self.get_logger().info(f"New Target Received: Index {self.target_brick_idx}. Starting grasp tracking.")
 
@@ -250,20 +208,9 @@ class RosGraspNode(Node):
         if len(msg.detections) == 0:
             return
 
-        self.detections = msg
-
-    def process_grasp(self):
-
         # 2. SEARCH for the specific ID
         target_det = None
-        if self.detections is None:
-            return
-
-        if len(self.detections.detections) == 0:
-            self.get_logger().info("No detections available.")
-            return
-        
-        for det in self.detections.detections:
+        for det in msg.detections:
             if not det.results:
                 continue
             hypothesis = det.results[0].hypothesis
@@ -282,7 +229,6 @@ class RosGraspNode(Node):
                     break
         
         if target_det is None:
-            self.get_logger().info(f"Target brick ID {self.target_brick_idx} not found in detections.")
             return
 
         # 3. Get Coords
@@ -343,7 +289,6 @@ class RosGraspNode(Node):
         self.pub_debug_q.publish(self.bridge.cv2_to_imgmsg(cv2.applyColorMap(q_vis, cv2.COLORMAP_JET), "bgr8"))
 
         if best_q < 0.01:
-            self.get_logger().info("No high-quality grasp found.")
             return
 
         # 8. Back to Full Image
@@ -356,6 +301,17 @@ class RosGraspNode(Node):
         cx_full = int(x1 + cx_crop)
         cy_full = int(y1 + cy_crop)
 
+        # --- NEW: Publish Pixel Coordinates for Servo ---
+        pixel_msg = Point()
+        pixel_msg.x = float(cx_full)
+        pixel_msg.y = float(cy_full)
+        
+        # FIX: Send the detected angle (radians) in the Z field
+        pixel_msg.z = float(best_ang) 
+        
+        self.pixel_pub.publish(pixel_msg)
+        # ------------------------------------------------       
+        
         # 9. Get Z
         d_val = depth_crop[int(cy_crop), int(cx_crop)]
         if d_val <= 0 or np.isnan(d_val):
@@ -373,8 +329,7 @@ class RosGraspNode(Node):
         # 10. Compute 3D Pose
         fx, fy = self.camera_intrinsics['fx'], self.camera_intrinsics['fy']
         cx, cy = self.camera_intrinsics['cx'], self.camera_intrinsics['cy']
-        d_val = d_val * 1000
-        self.get_logger().info(f"Camera Intrinsics: fx={fx}, fy={fy}, cx={cx}, cy={cy}, depth={d_val}")
+
         X = (cx_full - cx) * d_val / fx
         Y = (cy_full - cy) * d_val / fy
         Z = d_val
@@ -396,21 +351,8 @@ class RosGraspNode(Node):
         grasp_msg.pose.orientation.z = math.sin(half_theta)
         grasp_msg.pose.orientation.w = math.cos(half_theta)
 
-        # with self.latest_grasp_lock:
-        #     self.latest_grasp = grasp_msg
-            
-
-        # self.grasp_ready_event.set()
         self.pose_pub.publish(grasp_msg)
 
-
-        # self.pose_pub.publish(grasp_msg)
-        # self.grasp_ready_event.set()
-        # with self.latest_grasp_lock:
-        #     self.latest_grasp = GraspPoint()
-        #     self.latest_grasp = grasp_msg
-        #     self.get_logger().error(f"grasp msg X: {grasp_msg.pose.position.x}")
-            
         # 12. Visualize
         if self.last_rgb_detection is not None:
             vis_img = self.last_rgb_detection.copy()
@@ -423,8 +365,6 @@ class RosGraspNode(Node):
         
         self.get_logger().info(f"Published BrickGrasp: ID={self.target_brick_idx}, Q={best_q:.2f} at [{X:.2f}, {Y:.2f}, {Z:.2f}]")
 
-        return grasp_msg
-    
 def main(args=None):
     rclpy.init(args=args)
     node = RosGraspNode()

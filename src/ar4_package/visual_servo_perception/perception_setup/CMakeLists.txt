@@ -57,29 +57,6 @@ ament_target_dependencies(pose_commander
   tf2_geometry_msgs 
   moveit_ros_planning_interface
 )
-# Image Saver Tool
-add_executable(image_saver src/image_saver.cpp)
-ament_target_dependencies(image_saver 
-  rclcpp 
-  sensor_msgs 
-  cv_bridge 
-  image_transport 
-  OpenCV
-)
-
-
-# 4. Brick Tracking (NEW)
-add_executable(brick_tracking src/brick_tracking.cpp)
-ament_target_dependencies(brick_tracking 
-  rclcpp 
-  sensor_msgs 
-  std_msgs 
-  cv_bridge 
-  image_transport
-)
-# Link ViSP and OpenCV (Required for Moving Edges and Hough Transform)
-target_link_libraries(brick_tracking ${VISP_LIBRARIES} ${OpenCV_LIBRARIES})
-
 # 4. Brick Tracking (NEW)
 add_executable(trial_controller src/controller_trial.cpp)
 ament_target_dependencies(trial_controller 
@@ -96,22 +73,17 @@ target_link_libraries(trial_controller ${VISP_LIBRARIES} ${OpenCV_LIBRARIES})
 install(PROGRAMS
   perception_setup/camera_driver.py
   perception_setup/feature_detection_bricks.py
-  perception_setup/feature_detection_bricks_irl.py
   perception_setup/depth_estimation.py
-  perception_setup/feature_detection_aruco.py
   perception_setup/mock_vel.py
   perception_setup/data_logger.py
   perception_setup/pose_validation_logger.py
   perception_setup/plot_pose.py
   perception_setup/joint_plotter.py
   perception_setup/velocity_smoother.py
-  perception_setup/plot_workspace.py
   perception_setup/feature_detection_fisheye.py
-  perception_setup/feature_detection_irl_fisheye.py
   perception_setup/target_generator.py
   perception_setup/bricks_homography.py
   perception_setup/grasp_shifting_node.py
-  perception_setup/ground_truth.py
   perception_setup/visualizer.py
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -121,8 +93,6 @@ install(TARGETS
   visp_ibvs_controller
   z_query_tool 
   pose_commander
-  brick_tracking  
-  image_saver
   trial_controller
   DESTINATION lib/${PROJECT_NAME}
 )

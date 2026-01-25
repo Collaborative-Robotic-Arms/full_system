@@ -1,0 +1,4 @@
+string brick_index
+---
+dual_arms_msgs/GraspPoint grasp_point
+bool success
