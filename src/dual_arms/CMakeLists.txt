@@ -203,6 +203,12 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  src/ar4_gripper_service.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME ar4_gripper_service
+)
+
 # =====================================================
 # 🔹 Export
 # =====================================================

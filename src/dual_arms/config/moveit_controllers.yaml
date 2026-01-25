@@ -51,7 +51,8 @@ moveit_simple_controller_manager:
     type: FollowJointTrajectory
     default: true
     joints:
-      - ar4_gripper_jaw1_joint      
+      - ar4_gripper_jaw1_joint
+      
   # dual_arms_controller:
   #   type: FollowJointTrajectory
   #   default: true 
