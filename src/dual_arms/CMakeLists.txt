@@ -208,7 +208,10 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
   RENAME ar4_gripper_service
 )
-
+install(PROGRAMS
+  src/gripper.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 # =====================================================
 # 🔹 Export
 # =====================================================

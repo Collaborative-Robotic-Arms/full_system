@@ -71,7 +71,8 @@ class AssemblySupervisor(Node):
         self.abb_client = ActionClient(self, ExecuteTask, 'abb_control', callback_group=self.cb_group)
         self.grasp_client = ActionClient(self, MoveToPose, 'grasp_pipeline', callback_group=self.cb_group)
         self.grasp_pipeline_client = self.create_client(GetGrasp, 'grasp/get_grasp_point', callback_group=self.cb_group) 
-        self.gripper_client = self.create_client(SetBool, 'ar4_gripper/set', callback_group=self.cb_group)
+        self.gripper_client = self.create_client(SetBool, 'ar4_gripper/set') #, callback_group=self.cb_group
+        
         self.get_logger().info('Supervisor Initialized. Waiting for services...')
 
         self.state = "INIT"
@@ -223,6 +224,10 @@ class AssemblySupervisor(Node):
             elif self.state in ["EXECUTE_AR4_DIRECT", "AR4_PICK_FOR_HANDOVER"]:
                 self.get_logger().info(f'Starting AR4 Pick Sequence for {self.current_brick.id}')
 
+                #await self.set_ar4_gripper(True)
+                
+                self.get_logger().info(f'AR4 Opened')
+                
                 # Step A: Approach
                 goal_msg = MoveToPose.Goal()
                 goal_msg.target_pose = self.current_grasp_point.pose 
@@ -231,9 +236,10 @@ class AssemblySupervisor(Node):
                 if await self.check_and_recover(action_result, self.state): 
                     return
 
-                await self.set_ar4_gripper(open_gripper=True)
-                await self.set_ar4_gripper(open_gripper=False)
-                
+                self.get_logger().info(f'AR4 Moved')
+                await self.set_ar4_gripper(True)
+                await self.set_ar4_gripper(False)
+
                 # Step B: Visual Servoing
                 self.get_logger().info('Switching to Visual Servoing...')
                 vs_goal = AlignToTarget.Goal()
@@ -397,15 +403,13 @@ class AssemblySupervisor(Node):
         return False # All good
     
     async def set_ar4_gripper(self, open_gripper: bool):
-        """Helper to call the gripper service."""
         if not self.gripper_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().error('Gripper service not available!')
+            self.get_logger().error('Gripper service not available')
             return False
-            
+
         req = SetBool.Request()
         req.data = open_gripper
-        
-        # Using await here works perfectly because of your ReentrantCallbackGroup
+
         result = await self.gripper_client.call_async(req)
         return result.success
 
