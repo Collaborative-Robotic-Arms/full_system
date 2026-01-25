@@ -95,13 +95,6 @@ private:
             // Ensure this matches what your Mock/Supervisor uses (e.g., "base_link" or "world")
             target_msg.header.frame_id = "base_link"; 
             target_msg.pose = goal->target_pose;
-
-
-            // tf2::Quaternion q;
-            // q.setRPY(target_msg.pose.orientation.x * M_PI / 180.0, target_msg.pose.orientation.y * M_PI / 180.0,
-            //    target_msg.pose.orientation.z * M_PI / 180.0);
-            // q.normalize();
-            // target_msg.pose.orientation = tf2::toMsg(q);
             
             // Log the incoming coordinates for debugging
             RCLCPP_INFO(this->get_logger(), "Received Target position[base_link]: x=%.3f, y=%.3f, z=%.3f", 

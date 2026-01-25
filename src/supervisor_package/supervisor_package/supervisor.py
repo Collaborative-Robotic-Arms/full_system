@@ -5,6 +5,7 @@ from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 import tf2_geometry_msgs # Required for do_transform_pose
+from action_msgs.msg import GoalStatus
 
 # Custom Interfaces
 from supervisor_package.srv import GetAssemblyPlan
@@ -14,6 +15,7 @@ from dual_arms_msgs.srv import GetGrasp , DetectBricks
 from geometry_msgs.msg import TransformStamped, Pose # Added Pose to imports
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from dual_arms_msgs.action import ExecuteTask
+from std_srvs.srv import SetBool
 
 # --- NEW TF2 IMPORTS ---
 from tf2_ros import TransformException
@@ -69,7 +71,7 @@ class AssemblySupervisor(Node):
         self.abb_client = ActionClient(self, ExecuteTask, 'abb_control', callback_group=self.cb_group)
         self.grasp_client = ActionClient(self, MoveToPose, 'grasp_pipeline', callback_group=self.cb_group)
         self.grasp_pipeline_client = self.create_client(GetGrasp, 'grasp/get_grasp_point', callback_group=self.cb_group) 
-
+        self.gripper_client = self.create_client(SetBool, 'ar4_gripper/set', callback_group=self.cb_group)
         self.get_logger().info('Supervisor Initialized. Waiting for services...')
 
         self.state = "INIT"
@@ -190,21 +192,27 @@ class AssemblySupervisor(Node):
 
                     self.current_grasp_point = raw_grasp
 
-                    self.current_grasp_point.pose.orientation.x = raw_grasp.pose.orientation.w
-                    self.current_grasp_point.pose.orientation.y = raw_grasp.pose.orientation.z
-                    self.current_grasp_point.pose.orientation.z = 0.0
-                    self.current_grasp_point.pose.orientation.w = 0.0
+                    # self.current_grasp_point.pose.orientation.x = raw_grasp.pose.orientation.w
+                    # self.current_grasp_point.pose.orientation.y = raw_grasp.pose.orientation.z
+                    # self.current_grasp_point.pose.orientation.z = 0.0
+                    # self.current_grasp_point.pose.orientation.w = 0.0
+                    self.current_grasp_point.pose.orientation.x = raw_grasp.pose.orientation.x
+                    self.current_grasp_point.pose.orientation.y = raw_grasp.pose.orientation.y
+                    self.current_grasp_point.pose.orientation.z = raw_grasp.pose.orientation.z
+                    self.current_grasp_point.pose.orientation.w = raw_grasp.pose.orientation.w
                     # --------------------------------------------
 
                     self.get_logger().info(f'Grasp retrieved and transformed. Quality: {self.current_grasp_point.quality}') # 
                     
-                    # Branch to the correct arm based on current_brick location 
-                    if self.current_brick.location == 1:
+                    # Branch to the correct arm based on current_brick start_side 
+                    if self.current_brick.start_side == "ABB":
                         self.state = "EXECUTE_ABB_PICK"
-                    elif self.current_brick.location == 2:
+                    elif self.current_brick.start_side == "HANDOVER": # Or whatever string logic you use for handover
                         self.state = "HANDOVER_SEQUENCE"
-                    else:
+                    elif self.current_brick.start_side == "AR4":
                         self.state = "EXECUTE_AR4_DIRECT"
+                    else:
+                        self.get_logger().error(f"Unknown start_side: {self.current_brick.start_side}")
                 else:
                     self.get_logger().error(f'Failed to get grasp for brick {self.current_brick.id}')
                     self.state = "PROCESS_NEXT"
@@ -219,21 +227,29 @@ class AssemblySupervisor(Node):
                 goal_msg = MoveToPose.Goal()
                 goal_msg.target_pose = self.current_grasp_point.pose 
                 goal_msg.strategy = "APPROACH_OFFSET"
-                await self.send_action_goal(self.ar4_point_client, goal_msg)
+                action_result = await self.send_action_goal(self.ar4_point_client, goal_msg)
+                if await self.check_and_recover(action_result, self.state): 
+                    return
 
+                await self.set_ar4_gripper(open_gripper=True)
+                await self.set_ar4_gripper(open_gripper=False)
+                
                 # Step B: Visual Servoing
                 self.get_logger().info('Switching to Visual Servoing...')
                 vs_goal = AlignToTarget.Goal()
                 vs_goal.object_id = self.current_brick.type
-                await self.send_action_goal(self.ar4_vs_client, vs_goal)
+                action_result = await self.send_action_goal(self.ar4_vs_client, vs_goal)
+                if await self.check_and_recover(action_result, self.state): 
+                    return
 
                 # Step C: Lower and Grasp
                 self.get_logger().info('Lowering and Grasping...')
                 grasp_goal = MoveToPose.Goal()
                 grasp_goal.target_pose = self.current_grasp_point.pose 
                 grasp_goal.strategy = "GRASP"
-                await self.send_action_goal(self.ar4_point_client, grasp_goal)
-
+                action_result = await self.send_action_goal(self.ar4_point_client, grasp_goal)
+                if await self.check_and_recover(action_result, self.state):
+                    return
                 # self.gripper.set_ar4_grip('CLOSE')
                 self.state = "AR4_PLACE_ON_GRID" if self.state == "EXECUTE_AR4_DIRECT" else "HANDOVER_EXECUTION"
 
@@ -241,9 +257,10 @@ class AssemblySupervisor(Node):
                 place_goal = MoveToPose.Goal()
                 place_goal.target_pose = self.current_brick.place_pose 
                 place_goal.strategy = "PLACE"
-                await self.send_action_goal(self.ar4_point_client, place_goal)
-
+                action_result = await self.send_action_goal(self.ar4_point_client, place_goal)
                 # self.gripper.set_ar4_grip('OPEN')
+                if await self.check_and_recover(action_result, self.state):
+                    return
                 self.state = "PROCESS_NEXT"
 
             # =========================
@@ -261,7 +278,9 @@ class AssemblySupervisor(Node):
                 else:
                     abb_pick_goal.target_pose = self.current_brick.pickup_pose 
                 
-                await self.send_action_goal(self.abb_client, abb_pick_goal)
+                action_result = await self.send_action_goal(self.abb_client, abb_pick_goal)
+                if await self.check_and_recover(action_result, self.state):
+                    return
                 self.state = "EXECUTE_ABB_PLACE"
                 
             elif self.state == "EXECUTE_ABB_PLACE":
@@ -270,7 +289,9 @@ class AssemblySupervisor(Node):
                 abb_place_goal.target_pose = self.current_brick.place_pose 
 
                 abb_place_goal.target_pose.pose.position.z = 0.24
-                await self.send_action_goal(self.abb_client, abb_place_goal)
+                action_result = await self.send_action_goal(self.abb_client, abb_place_goal)
+                if await self.check_and_recover(action_result, self.state):
+                    return
                 self.state = "PROCESS_NEXT"
                 
             # =========================
@@ -284,20 +305,49 @@ class AssemblySupervisor(Node):
 
                 goal = MoveToPose.Goal()
                 goal.strategy = "GOTO_HANDOVER"
-                await self.send_action_goal(self.ar4_point_client, goal)
-
+                action_result = await self.send_action_goal(self.ar4_point_client, goal)
+                if await self.check_and_recover(action_result, self.state):
+                    return
                 # ABB Task Server handles Open -> Move -> Close sequence
                 abb_goal = ExecuteTask.Goal()
                 abb_goal.task_type = "PICK_FROM_HANDOVER"
                 abb_goal.target_pose = self.handover_pose 
-                await self.send_action_goal(self.abb_client, abb_goal)
-
+                action_result = await self.send_action_goal(self.abb_client, abb_goal)
+                if await self.check_and_recover(action_result, self.state):
+                    return
                 # self.gripper.set_ar4_grip('OPEN')
                 release_goal = MoveToPose.Goal()
                 release_goal.strategy = "RELEASE"
-                await self.send_action_goal(self.ar4_point_client, release_goal)
-
+                action_result = await self.send_action_goal(self.ar4_point_client, release_goal)
+                if await self.check_and_recover(action_result, self.state):
+                    return
                 self.state = "PROCESS_NEXT"
+
+            # =========================
+            # STATE: RECOVERY
+            # =========================
+            elif self.state == "RECOVERY":
+                self.get_logger().warn('Entering Recovery Mode: Moving AR4 to Home...')
+                
+                # 1. Prepare a "Home" or "Safe" command
+                recovery_goal = MoveToPose.Goal()
+                recovery_goal.strategy = "HOME" # Ensure your C++ commander handles a "HOME" strategy
+                
+                # 2. Attempt to move home
+                action_result = await self.send_action_goal(self.ar4_point_client, recovery_goal)
+                
+                if action_result and action_result.success:
+                    self.get_logger().info('Recovery Successful. Arm is home. Retrying current brick...')
+                    # Option A: Retry the brick (put it back in the queue)
+                    self.assembly_queue.insert(0, self.current_brick) 
+                    self.state = "PROCESS_NEXT"
+                else:
+                    self.get_logger().error('Recovery Failed! Human intervention required.')
+                    self.state = "EMERGENCY_STOP"
+
+            elif self.state == "EMERGENCY_STOP":
+                self.get_logger().error("SYSTEM HALTED. Please check for collisions or IK limits.")
+                return # Stop the timer loop entirely
 
         except Exception as e:
             self.get_logger().error(f'State Machine Failed: {e}')
@@ -305,16 +355,59 @@ class AssemblySupervisor(Node):
         if self.state != "DONE":
             self.timer = self.create_timer(0.1, self.state_machine_loop, callback_group=self.cb_group)
 
+    # async def send_action_goal(self, client, goal_msg):
+    #     if not client.wait_for_server(timeout_sec=5.0):
+    #         return False
+    #     send_goal_future = client.send_goal_async(goal_msg)
+    #     goal_handle = await send_goal_future
+    #     if not goal_handle.accepted:
+    #         return False
+    #     result_future = goal_handle.get_result_async()
+    #     result = await result_future
+    #     return result.result
+    
     async def send_action_goal(self, client, goal_msg):
         if not client.wait_for_server(timeout_sec=5.0):
-            return False
+            self.get_logger().error(f'Action server {client._action_name} not available!')
+            return None
+
         send_goal_future = client.send_goal_async(goal_msg)
         goal_handle = await send_goal_future
+
         if not goal_handle.accepted:
-            return False
+            self.get_logger().error(f'Goal rejected by {client._action_name}')
+            return None
+
         result_future = goal_handle.get_result_async()
         result = await result_future
-        return result.result
+
+        # --- THE FEEDBACK CHECK ---
+        if result.status == GoalStatus.STATUS_SUCCEEDED:
+            return result.result
+        else:
+            self.get_logger().error(f'Action {client._action_name} failed with status: {result.status}')
+            return None
+        
+    # Create a small helper inside the state machine loop to save space
+    async def check_and_recover(self, result, current_state_name):
+        if result is None or not result.success:
+            self.get_logger().error(f"Failure in {current_state_name}. Moving to RECOVERY.")
+            self.state = "RECOVERY"
+            return True # We need to recover
+        return False # All good
+    
+    async def set_ar4_gripper(self, open_gripper: bool):
+        """Helper to call the gripper service."""
+        if not self.gripper_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error('Gripper service not available!')
+            return False
+            
+        req = SetBool.Request()
+        req.data = open_gripper
+        
+        # Using await here works perfectly because of your ReentrantCallbackGroup
+        result = await self.gripper_client.call_async(req)
+        return result.success
 
 def main(args=None):
     rclpy.init(args=args)
