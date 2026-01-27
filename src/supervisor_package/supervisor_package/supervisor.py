@@ -21,6 +21,9 @@ from std_srvs.srv import SetBool
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
+
+from scipy.spatial.transform import Rotation as R
+
 # -----------------------
 
 class AssemblySupervisor(Node):
@@ -224,7 +227,7 @@ class AssemblySupervisor(Node):
             elif self.state in ["EXECUTE_AR4_DIRECT", "AR4_PICK_FOR_HANDOVER"]:
                 self.get_logger().info(f'Starting AR4 Pick Sequence for {self.current_brick.id}')
 
-                #await self.set_ar4_gripper(True)
+                await self.set_ar4_gripper(True)
                 
                 self.get_logger().info(f'AR4 Opened')
                 
@@ -237,7 +240,7 @@ class AssemblySupervisor(Node):
                     return
 
                 self.get_logger().info(f'AR4 Moved')
-                await self.set_ar4_gripper(True)
+                # await self.set_ar4_gripper(True)
                 await self.set_ar4_gripper(False)
 
                 # Step B: Visual Servoing

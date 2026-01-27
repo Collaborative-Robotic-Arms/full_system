@@ -20,7 +20,7 @@ class GripperService(Node):
             point.positions = [0.014]
             response.message = "Gripper opened"
         else:  # False = Close
-            point.positions = [0.009]
+            point.positions = [0.000] # IRL it's 0.01 or 0.011
             response.message = "Gripper closed"
 
         point.time_from_start.sec = 1
