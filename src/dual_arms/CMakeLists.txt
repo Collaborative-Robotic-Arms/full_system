@@ -59,6 +59,9 @@ find_package(moveit_ros_visualization REQUIRED)
 find_package(moveit_ros_move_group REQUIRED)
 find_package(moveit_visual_tools REQUIRED)
 
+find_package(control_msgs REQUIRED)
+find_package(trajectory_msgs REQUIRED)
+
 # =====================================================
 # 🔹 External / Custom Packages
 # =====================================================
@@ -161,6 +164,8 @@ ament_target_dependencies(
   tf2_geometry_msgs
   moveit_ros_planning_interface
   supervisor_package
+  control_msgs       # <--- ADD THIS
+  trajectory_msgs    # <--- ADD THIS
 )
 
 add_executable(AR4_pose_commander src/AR4_pose_commander.cpp)

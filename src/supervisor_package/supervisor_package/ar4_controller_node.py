@@ -16,6 +16,8 @@ class AR4Controller(Node):
     def __init__(self):
         super().__init__('ar4_controller')
         self.cb_group = ReentrantCallbackGroup()
+        
+        self.holding_object = False
 
         # --- GRIPPER CLIENT ---
         self.gripper_client = self.create_client(SetBool, 'ar4_gripper/set')
@@ -123,18 +125,33 @@ class AR4Controller(Node):
         feedback_msg.current_status = "DONE"
         goal_handle.publish_feedback(feedback_msg)
         
+        self.holding_object = True
+        
         return True
 
     async def execute_place_sequence(self, place_pose, goal_handle):
         self.get_logger().info('Starting AR4 Place Sequence')
 
+        # --- WAIT FOR FLAG ---
+        wait_time = 0
+        timeout = 10.0 # Wait up to 10 seconds for the pick to register
+        
+        while not self.holding_object:
+            if wait_time > timeout:
+                self.get_logger().error("ABORTING PLACE: Timed out waiting for Pick Flag!")
+                return False
+            
+            self.get_logger().warn(f"Waiting for object... ({wait_time}/{timeout}s)")
+            await asyncio.sleep(0.5) # Yield control
+            wait_time += 0.5
+
+        # If we get here, self.holding_object is True!
         feedback = ExecuteTask.Feedback()
 
-        # ---------- PRE-PLACE ----------
+        # 1. PRE-PLACE
         preplace_pose = deepcopy(place_pose)
         preplace_pose.position.z += 0.1
 
-        feedback.progress = 0.0
         feedback.current_status = "PRE_PLACE"
         goal_handle.publish_feedback(feedback)
 
@@ -145,44 +162,38 @@ class AR4Controller(Node):
         if await self.send_action_goal(self.move_client, preplace_goal) is None:
             return False
 
-        # ---------- PLACE ----------
-        feedback.progress = 0.4
+        # 2. PLACE
         feedback.current_status = "PLACE"
         goal_handle.publish_feedback(feedback)
 
         place_goal = MoveToPose.Goal()
-        place_goal.target_pose = place_pose  # original untouched pose
+        place_goal.target_pose = place_pose
         place_goal.strategy = "PLACE"
 
         if await self.send_action_goal(self.move_client, place_goal) is None:
             return False
 
-        # ---------- RELEASE ----------
-        feedback.progress = 0.8
+        # 3. RELEASE
         feedback.current_status = "RELEASE"
         goal_handle.publish_feedback(feedback)
 
         await self.set_gripper(True)
 
-        feedback.progress = 1.0
-        feedback.current_status = "DONE"
-        goal_handle.publish_feedback(feedback)
+        # --- RESET FLAG ---
+        self.holding_object = False # Ready for next task
 
-        # ---------- RETURN TO HOME ----------
+        # 4. HOME
         self.get_logger().info("Returning AR4 to HOME...")
         home_goal = MoveToPose.Goal()
         home_goal.strategy = "HOME"
-        # Note: target_pose is ignored by the C++ server when strategy is "HOME"
         
-        if await self.send_action_goal(self.move_client, home_goal) is None:
-            self.get_logger().warn("Failed to return to Home, but Place succeeded.")
+        await self.send_action_goal(self.move_client, home_goal)
         
-        feedback.progress = 1.0
         feedback.current_status = "DONE"
         goal_handle.publish_feedback(feedback)
         
         return True
-
+    
     # ---------- ACTION SERVER CALLBACK ----------
     async def execute_task_callback(self, goal_handle):
             goal = goal_handle.request

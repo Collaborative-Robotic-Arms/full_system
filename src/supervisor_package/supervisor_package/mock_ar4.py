@@ -35,7 +35,7 @@ def euler_to_quaternion(roll, pitch, yaw):
 # --- DEFINE YOUR ANGLES HERE (in degrees) ---
 roll = 180.0
 pitch = 0.0 
-yaw = 0
+yaw = 0.0
 
 # Convert to Radians
 r_rad = math.radians(roll)
@@ -44,6 +44,7 @@ y_rad = math.radians(yaw)
 
 # Convert to Quaternion
 q = euler_to_quaternion(r_rad, p_rad, y_rad)
+q1 = euler_to_quaternion(math.radians(180.0), math.radians(0.0), math.radians(90.0))
 
 class MockRobotSystem(Node):
     def __init__(self):
@@ -104,7 +105,51 @@ class MockRobotSystem(Node):
             brick2.place_pose.orientation.z = 1.0
             brick2.place_pose.orientation.w = 0.0
                         
-            plan.append(brick2)
+            plan.append(brick2)         
+            
+            brick3 = SuperBrick()
+            brick3.id = 3
+            brick3.type = "T_BRICK"      # Must be a string based on your .msg
+            brick3.start_side = "AR4"    # Must be a string based on your .msg
+            brick3.target_side = "GRID"  # Must be a string based on your .msg
+            
+            # Initialize the poses so they aren't null
+            brick3.pickup_pose = Pose()
+            brick3.pickup_pose.position.x = 0.5
+            brick3.pickup_pose.orientation.y = 1.0
+        
+            brick3.place_pose = Pose()
+            brick3.place_pose.position.x = 0.6
+            brick3.place_pose.position.y = -0.1
+            brick3.place_pose.position.z = 0.14
+            brick3.place_pose.orientation.x = q1[0]
+            brick3.place_pose.orientation.y = q1[1]
+            brick3.place_pose.orientation.z = q1[2]
+            brick3.place_pose.orientation.w = q1[3]
+                        
+            plan.append(brick3)            
+            
+            brick4 = SuperBrick()
+            brick4.id = 4
+            brick4.type = "I_BRICK"      # Must be a string based on your .msg
+            brick4.start_side = "ABB"    # Must be a string based on your .msg
+            brick4.target_side = "GRID"  # Must be a string based on your .msg
+        
+            # Initialize the poses so they aren't null
+            brick4.pickup_pose = Pose()
+            brick4.pickup_pose.position.x = 0.5
+            brick4.pickup_pose.orientation.y = 1.0
+    
+            brick4.place_pose = Pose()
+            brick4.place_pose.position.x = 0.35
+            brick4.place_pose.position.y = -0.15
+            brick4.place_pose.position.z = 0.22
+            brick4.place_pose.orientation.x = 0.0
+            brick4.place_pose.orientation.y = 0.0
+            brick4.place_pose.orientation.z = 1.0
+            brick4.place_pose.orientation.w = 0.0
+                        
+            plan.append(brick4)
             
             response.plan = plan
             return response
@@ -126,9 +171,22 @@ class MockRobotSystem(Node):
             brick2.pose.position.x = 0.4 
             brick2.pose.position.z = 0.22
             brick2.pose.orientation.w = 1.0
+            
+            brick3 = Brick()
+            brick3.id = 3
+            # Giving it a slightly different position so they aren't on top of each other
+            brick3.pose.position.x = 0.5 
+            brick3.pose.position.z = 0.14
+            brick3.pose.orientation.w = 1.0
 
-            # Return both in the list
-            response.bricks = [brick1, brick2]
+            brick4 = Brick()
+            brick4.id = 4
+            # Giving it a slightly different position so they aren't on top of each other
+            brick4.pose.position.x = 0.4 
+            brick4.pose.position.z = 0.22
+            brick4.pose.orientation.w = 1.0
+            
+            response.bricks = [brick1, brick2, brick3, brick4]
             
             # Handover pose (default)
             response.handover_pose = Pose()
@@ -160,6 +218,23 @@ class MockRobotSystem(Node):
                 gp.pose.orientation.z = 1.0
                 gp.pose.orientation.w = 0.0
 
+            elif request.brick_index == "3":
+                self.get_logger().info("Mock: Providing Grasp Point for Brick 3")
+                gp.pose.position = Point(x=0.02, y=0.02, z=0.14)
+                gp.pose.orientation.x = 0.0
+                gp.pose.orientation.y = 0.0
+                gp.pose.orientation.z = 0.0
+                gp.pose.orientation.w = 1.0
+                
+            elif request.brick_index == "4":
+                self.get_logger().info("Mock: Providing Grasp Point for Brick 4")
+                gp.pose.position = Point(x=0.1, y=-0.25, z=0.22)
+                # Using your manual orientation for ABB/Brick 2
+                gp.pose.orientation.x = 0.0
+                gp.pose.orientation.y = 0.0
+                gp.pose.orientation.z = 1.0
+                gp.pose.orientation.w = 0.0
+                
             else:
                 self.get_logger().warn(f"Mock: Brick ID {request.brick_index} not recognized!")
                 response.success = False

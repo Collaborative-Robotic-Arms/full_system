@@ -179,6 +179,8 @@ class AssemblySupervisor(Node):
                 pick_goal.target_pose = grasp_pose
                 
                 if await self.send_action_goal(self.abb_task_client, pick_goal):
+                    await asyncio.sleep(3.0)
+
                     # --- STEP 2: CALCULATE PLACE POSE ---
                     place_goal = ExecuteTask.Goal()
                     place_goal.task_type = "PLACE"
@@ -244,6 +246,7 @@ class AssemblySupervisor(Node):
                 pick_goal_ar.target_pose = grasp_pose_ar
                 
                 pick_success_ar = await self.send_action_goal(self.ar4_task_client, pick_goal_ar)
+                await asyncio.sleep(3.0)
                 
                 # 4. DO: PLACE
                 if pick_success_ar:
@@ -337,21 +340,27 @@ class AssemblySupervisor(Node):
                 elif self.state == "DISPATCH":
                     if not self.assembly_queue and self.active_tasks == 0:
                         self.get_logger().info('--- ALL TASKS COMPLETE ---')
-                        break
+                        break # Or reset to INIT if you want to loop forever
 
-                    for brick in list(self.assembly_queue):
-                        if brick.start_side == "ABB" and not self.abb_busy:
-                            self.abb_busy = True
-                            self.assembly_queue.remove(brick)
-                            asyncio.create_task(self.run_abb_mission(brick))
-                            break
+                    # --- 1. Attempt to Dispatch ABB ---
+                    if not self.abb_busy:
+                        for brick in list(self.assembly_queue):
+                            if brick.start_side == "ABB":
+                                self.abb_busy = True
+                                self.assembly_queue.remove(brick)
+                                asyncio.create_task(self.run_abb_mission(brick))
+                                self.get_logger().info(f"Dispatched ABB for Brick {brick.id}")
+                                break # Stop looking for ABB tasks, move to AR4 check
 
-                        elif brick.start_side == "AR4" and not self.ar4_busy:
-                            self.ar4_busy = True
-                            self.assembly_queue.remove(brick)
-                            asyncio.create_task(self.run_ar4_mission(brick))
-                            break
-
+                    # --- 2. Attempt to Dispatch AR4 ---
+                    if not self.ar4_busy:
+                        for brick in list(self.assembly_queue):
+                            if brick.start_side == "AR4":
+                                self.ar4_busy = True
+                                self.assembly_queue.remove(brick)
+                                asyncio.create_task(self.run_ar4_mission(brick))
+                                self.get_logger().info(f"Dispatched AR4 for Brick {brick.id}")
+                                break # Stop looking for AR4 tasks
 
             except Exception as e:
                 self.get_logger().error(f"Dispatcher Error: {e}")
