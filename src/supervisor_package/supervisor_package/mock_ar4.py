@@ -34,8 +34,8 @@ def euler_to_quaternion(roll, pitch, yaw):
     
 # --- DEFINE YOUR ANGLES HERE (in degrees) ---
 roll = 180.0
-pitch = 0.0 # Example: Pointing the gripper straight down
-yaw = 90.0
+pitch = 0.0 
+yaw = 0
 
 # Convert to Radians
 r_rad = math.radians(roll)
@@ -145,15 +145,15 @@ class MockRobotSystem(Node):
             # Logic to return different points based on the ID requested
             if request.brick_index == "1":
                 self.get_logger().info("Mock: Providing Grasp Point for Brick 1")
-                gp.pose.position = Point(x=0.65, y=0.0, z=0.14)
-                gp.pose.orientation.x = q[0]
-                gp.pose.orientation.y = q[1]
-                gp.pose.orientation.z = q[2]
-                gp.pose.orientation.w = q[3]
+                gp.pose.position = Point(x=0.0, y=0.0, z=0.14)
+                gp.pose.orientation.x = 0.0
+                gp.pose.orientation.y = 0.0
+                gp.pose.orientation.z = 0.0
+                gp.pose.orientation.w = 1.0
 
             elif request.brick_index == "2":
                 self.get_logger().info("Mock: Providing Grasp Point for Brick 2")
-                gp.pose.position = Point(x=0.52, y=0.1, z=0.22)
+                gp.pose.position = Point(x=0.0, y=-0.3, z=0.22)
                 # Using your manual orientation for ABB/Brick 2
                 gp.pose.orientation.x = 0.0
                 gp.pose.orientation.y = 0.0

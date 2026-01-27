@@ -162,12 +162,25 @@ class AR4Controller(Node):
         feedback.current_status = "RELEASE"
         goal_handle.publish_feedback(feedback)
 
-        # await self.set_gripper(True)
+        await self.set_gripper(True)
 
         feedback.progress = 1.0
         feedback.current_status = "DONE"
         goal_handle.publish_feedback(feedback)
 
+        # ---------- RETURN TO HOME ----------
+        self.get_logger().info("Returning AR4 to HOME...")
+        home_goal = MoveToPose.Goal()
+        home_goal.strategy = "HOME"
+        # Note: target_pose is ignored by the C++ server when strategy is "HOME"
+        
+        if await self.send_action_goal(self.move_client, home_goal) is None:
+            self.get_logger().warn("Failed to return to Home, but Place succeeded.")
+        
+        feedback.progress = 1.0
+        feedback.current_status = "DONE"
+        goal_handle.publish_feedback(feedback)
+        
         return True
 
     # ---------- ACTION SERVER CALLBACK ----------

@@ -82,7 +82,7 @@ class AssemblySupervisor(Node):
             # Lookup the transformation broadcasted in __init__
             t = self.tf_buffer.lookup_transform(
                 'base_link', 
-                'camera_color_optical_frame', 
+                'camera', 
                 rclpy.time.Time()) # Get the latest available transform
 
             # Use tf2_geometry_msgs to translate/rotate the pose
@@ -227,30 +227,49 @@ class AssemblySupervisor(Node):
         self.get_logger().info(f"AR4: Starting mission for Brick {brick.id}")
 
         try:
-            grasp_req = GetGrasp.Request()
-            grasp_req.brick_index = str(brick.id)
+            grasp_req_ar = GetGrasp.Request()
+            grasp_req_ar.brick_index = str(brick.id)
             
             self.get_logger().info(f"AR4: Requesting Grasp for {brick.id}")
-            grasp_result = await self.grasp_pipeline_client.call_async(grasp_req)
+            grasp_result_ar = await self.grasp_pipeline_client.call_async(grasp_req_ar)
 
-            if grasp_result and grasp_result.success:
+            if grasp_result_ar and grasp_result_ar.success:
                 # Extract Pose
-                grasp_pose = grasp_result.grasp_point.pose
+                grasp_pose_ar = self.transform_pose_to_abb(grasp_result_ar.grasp_point.pose)
+                grasp_pose_ar.position.z = 0.14
 
                 # 3. DO: PICK
-                pick_goal = ExecuteTask.Goal()
-                pick_goal.task_type = "PICK"
-                pick_goal.target_pose = grasp_pose
+                pick_goal_ar = ExecuteTask.Goal()
+                pick_goal_ar.task_type = "PICK"
+                pick_goal_ar.target_pose = grasp_pose_ar
                 
-                pick_success = await self.send_action_goal(self.ar4_task_client, pick_goal)
+                pick_success_ar = await self.send_action_goal(self.ar4_task_client, pick_goal_ar)
                 
                 # 4. DO: PLACE
-                if pick_success:
-                    place_goal = ExecuteTask.Goal()
-                    place_goal.task_type = "PLACE"
-                    place_goal.target_pose = brick.place_pose
+                if pick_success_ar:
+                    place_goal_ar = ExecuteTask.Goal()
+                    place_goal_ar.task_type = "PLACE"
+                    place_goal_ar.target_pose=brick.place_pose
                     
-                    await self.send_action_goal(self.ar4_task_client, place_goal)
+                    place_goal_ar.target_pose.position = self.transform_position(
+                        place_pose=brick.place_pose,
+                        brick_pose=brick.pickup_pose,
+                        grasp_point=grasp_pose_ar  
+                    )
+                    # # Orientation Transform
+                    # orientation = self.transform_quaternion(
+                    #     place_pose=brick.place_pose,
+                    #     brick_pose=brick.pickup_pose,
+                    #     grasp_point=grasp_pose # <--- Changed here too
+                    # )
+                    
+                    # if orientation:
+                    #     place_goal_ar.target_pose.orientation = orientation
+                    
+                    # Height Adjustment
+                    place_goal_ar.target_pose.position.z = 0.14
+                    
+                    await self.send_action_goal(self.ar4_task_client, place_goal_ar)
                     self.get_logger().info(f"AR4: Successfully completed Brick {brick.id}")
             else:
                 self.get_logger().error(f"AR4: Grasp Service failed for {brick.id}")
