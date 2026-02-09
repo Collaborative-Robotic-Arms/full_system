@@ -1,0 +1,14 @@
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - gripper_controller
+
+  gripper_controller:
+    action_ns: gripper_cmd
+    type: GripperCommand
+    default: true
+    # CRITICAL FIX: Include BOTH joints here for the controller to know about the mimic
+    joints:
+      - gripper_ABB_Gripper_Finger_1_Joint
+      - gripper_ABB_Gripper_Finger_2_Joint

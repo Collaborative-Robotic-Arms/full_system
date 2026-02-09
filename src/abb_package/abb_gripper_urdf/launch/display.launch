@@ -1,0 +1,12 @@
+<launch>
+  <arg name="model" default="$(find-pkg-share ros2srrc_robots)/irb120/urdf/combined_irb120.urdf.xacro" description="Path to the URDF file"/>
+
+  <node pkg="joint_state_publisher_gui" exec="joint_state_publisher_gui" name="joint_state_publisher_gui"/>
+
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher">
+    <param name="robot_description" value="$(command 'xacro $(var model)')"/>
+  </node>
+
+  <node pkg="rviz2" exec="rviz2" name="rviz" args="-d $(find-pkg-share abb_gripper)/urdf.rviz"/>
+</launch>
+

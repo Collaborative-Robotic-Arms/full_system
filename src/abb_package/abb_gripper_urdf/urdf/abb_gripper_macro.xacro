@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="abb_gripper" params="arm_parent_link gripper_prefix">
+    
+    <!-- ================= LINKS & JOINTS ================= -->
+    
+    <!-- Base link of the gripper, attached to the arm's end-effector -->
+    <joint name="${gripper_prefix}joint_gripper_base" type="fixed">
+      <parent link="${arm_parent_link}"/>
+      <child link="${gripper_prefix}base_link"/>
+      <!-- Orientation to correctly align the prismatic joints (fingers) -->
+      <origin xyz="0 0 0" rpy="1.5708 0 1.5708"/> 
+    </joint>
+
+    <link name="${gripper_prefix}base_link">
+      <inertial>
+        <origin xyz="-0.00006 0.0004 0.0601" rpy="0 0 0" />
+        <mass value="0.5" /> 
+        <!-- Fixed Inertia Tensor: Explicitly define all six components for URDF parser stability -->
+        <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001" />
+      </inertial>
+      <visual>
+        <geometry><mesh filename="package://abb_gripper_urdf/meshes/base_link.STL" /></geometry>
+        <material name="LightGrey"><color rgba="0.7 0.7 0.7 1.0" /></material>
+      </visual>
+      <collision>
+        <geometry><mesh filename="package://abb_gripper_urdf/meshes/base_link.STL" /></geometry>
+      </collision>
+    </link>
+    
+    <!-- 2. Finger 1 (Master) -->
+    <link name="${gripper_prefix}ABB_Gripper_Finger_1">
+      <inertial>
+        <origin xyz="-0.0014 0.0057 0.0099" rpy="0 0 0" />
+        <mass value="0.1" /> 
+        <inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.0001" iyz="0.0" izz="0.0001" />
+      </inertial>
+      <visual>
+        <geometry><mesh filename="package://abb_gripper_urdf/meshes/ABB_Gripper_Finger_1.STL" /></geometry>
+        <material name="White"><color rgba="1 1 1 1" /></material>
+      </visual>
+      <collision>
+        <geometry><mesh filename="package://abb_gripper_urdf/meshes/ABB_Gripper_Finger_1.STL" /></geometry>
+      </collision>
+    </link>
+    
+<joint name="${gripper_prefix}ABB_Gripper_Finger_1_Joint" type="prismatic">
+      <parent link="${gripper_prefix}base_link" />
+      <child link="${gripper_prefix}ABB_Gripper_Finger_1" />
+      <axis xyz="-1 0 0" />
+      <dynamics damping="0.5" friction="0.0"/>
+      <limit lower="0.0" upper="0.0135" effort="100.0" velocity="1.0"/>
+    </joint>
+    
+    <link name="${gripper_prefix}ABB_Gripper_Finger_2">
+      <inertial>
+        <origin xyz="0.0021 0.0057 0.0096" rpy="0 0 0" />
+        <mass value="0.1" /> 
+        <inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.0001" iyz="0.0" izz="0.0001" />
+      </inertial>
+      <visual>
+        <geometry><mesh filename="package://abb_gripper_urdf/meshes/ABB_Gripper_Finger_2.STL" /></geometry>
+        <material name="White"><color rgba="1 1 1 1" /></material>
+      </visual>
+      <collision>
+        <geometry><mesh filename="package://abb_gripper_urdf/meshes/ABB_Gripper_Finger_2.STL" /></geometry>
+      </collision>
+    </link>
+    
+    <joint name="${gripper_prefix}ABB_Gripper_Finger_2_Joint" type="prismatic">
+      <parent link="${gripper_prefix}base_link" />
+      <child link="${gripper_prefix}ABB_Gripper_Finger_2" />
+      <axis xyz="1 0 0" />
+      <dynamics damping="0.5" friction="0.0"/>
+      <limit lower="0.0" upper="0.0135" effort="100.0" velocity="1.0"/>
+    </joint>
+
+    <!-- ================= ROS2 CONTROL & GAZEBO PLUGIN CONSOLIDATED ================= -->
+    <!-- These blocks have been removed from this file and must be placed 
+         in the top-level dual_arms Xacro file. -->
+  
+  </xacro:macro>
+</robot>

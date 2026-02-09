@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<library path="irb120_irb120_arm_moveit_ikfast_plugin">
+  <class name="irb120_irb120_arm/IKFastKinematicsPlugin" type="irb120_irb120_arm::IKFastKinematicsPlugin" base_class_type="kinematics::KinematicsBase">
+    <description>IKFast61 plugin for closed-form kinematics of irb120 irb120_arm</description>
+  </class>
+</library>

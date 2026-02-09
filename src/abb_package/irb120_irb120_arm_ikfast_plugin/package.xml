@@ -1,0 +1,38 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<package format="3">
+  <name>irb120_irb120_arm_ikfast_plugin</name>
+  <version>0.0.0</version>
+  <description>IKFast plugin for ABB IRB120 arm</description>
+  <maintainer email="mariamelsebaey@todo.todo">mariamelsebaey</maintainer>
+  <license>BSD</license>
+  <!-- Build tools -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <!-- Build dependencies -->
+  <build_depend>moveit_core</build_depend>
+  <build_depend>pluginlib</build_depend>
+  <build_depend>rclcpp</build_depend>
+  <build_depend>tf2_kdl</build_depend>
+  <build_depend>tf2_eigen</build_depend>
+  <build_depend>liblapack-dev</build_depend>
+  <build_depend>generate_parameter_library</build_depend>
+  <build_depend>orocos_kdl</build_depend>
+  <!-- Execution dependencies -->
+  <exec_depend>moveit_core</exec_depend>
+  <exec_depend>pluginlib</exec_depend>
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>tf2_kdl</exec_depend>
+  <exec_depend>tf2_eigen</exec_depend>
+  <exec_depend>liblapack-dev</exec_depend>
+  <exec_depend>generate_parameter_library</exec_depend>
+  <exec_depend>orocos_kdl</exec_depend>
+  <!-- Export plugin to MoveIt -->
+  <export>
+    <build_type>ament_cmake</build_type>
+    <moveit_core plugin="${prefix}/irb120_irb120_arm_moveit_ikfast_plugin_description.xml"/>
+  </export>
+</package>
+<!-- <export>
+    <build_type>ament_cmake</build_type>
+    <moveit_core plugin="${prefix}/plugin_description.xml"/>
+  </export>
+</package> -->
