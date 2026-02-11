@@ -1,5 +1,0 @@
-string brick_type
----
-dual_arms_msgs/Brick[] bricks
-geometry_msgs/Pose handover_pose
-bool success
