@@ -13,12 +13,12 @@
 
   <link name="world" />
 
-  <link name="Abb_dummy_base" />
+  <link name="ABB_base_link" />
 
   <joint name="ABB_base_joint" type="fixed">
     <parent link="world" />
-    <child link="Abb_dummy_base" />
-    <origin xyz="0 -1.110  0" rpy="0 0 0" />
+    <child link="ABB_base_link" />
+    <origin xyz="0 -1.110  0" rpy="0 0 1.57079" />
   </joint>
 
   <xacro:ar_robot

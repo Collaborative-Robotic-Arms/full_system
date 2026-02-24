@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="ar4_robot">
+  
+  <xacro:arg name="ar_model" default="mk3" />
+  <xacro:arg name="serial_port" default="/dev/ttyACM0" />
+  <xacro:arg name="arduino_serial_port" default="/dev/ttyUSB0" />
+  <xacro:arg name="calibrate" default="True" />
+  <xacro:arg name="tf_prefix" default="ar4_" />
+
+  <xacro:include filename="$(find annin_ar4_description)/urdf/ar.ros2_control.xacro" />
+  <xacro:include filename="$(find annin_ar4_description)/urdf/ar_macro.xacro" />
+
+  <xacro:ar_ros2_control
+    ar_model="$(arg ar_model)"
+    plugin_name="annin_ar4_driver/ARHardwareInterface"
+    serial_port="$(arg serial_port)"
+    calibrate="$(arg calibrate)"
+    robot_parameters_file="$(find annin_ar4_description)/config/$(arg ar_model).yaml"
+    joint_offset_parameters_file="$(find annin_ar4_driver)/config/joint_offsets/$(arg ar_model).yaml"
+    driver_parameters_file="$(find annin_ar4_driver)/config/driver.yaml"
+    tf_prefix="$(arg tf_prefix)"
+  />
+
+</robot>

@@ -1,0 +1,38 @@
+<?xml version="1.0" ?>
+<robot name="dual_arms_with_environment" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  
+  <xacro:arg name="CONFIG" default="ABB"/>
+
+  <xacro:arg name="ar_model" default="mk3"/>
+  <xacro:arg name="serial_port" default="/dev/ttyACM0"/>
+  <xacro:arg name="calibrate" default="True"/>
+  <xacro:arg name="tf_prefix" default="ar4_"/>
+  <xacro:arg name="include_gripper" default="True"/>
+  <xacro:arg name="arduino_serial_port" default="/dev/ttyUSB0"/>
+
+  <xacro:include filename="$(find assembly_environment)/urdf/environment_hardware.xacro" />  
+  <link name="world"/>
+
+  <xacro:environment/>
+  <joint name="world_to_environment_joint" type="fixed">
+    <parent link="world"/>
+    <child link="abb_table"/>
+    <origin xyz="0.0 0 0.0" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:include filename="$(find dual_arms)/urdf/irb120_wrapper.xacro" />
+  <xacro:irb120_mounted parent="abb_table">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:irb120_mounted>
+
+
+  <xacro:include filename="$(find dual_arms)/urdf/ar4_wrapper.xacro" />
+
+  <xacro:ar_robot
+    tf_prefix="$(arg tf_prefix)"
+    parent="ar4_table"
+    robot_parameters_file="$(find annin_ar4_description)/config/$(arg ar_model).yaml">
+    <origin xyz="0 0 0" rpy="0 0 1.5708"/>
+  </xacro:ar_robot>
+
+</robot>

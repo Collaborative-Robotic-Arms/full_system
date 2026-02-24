@@ -13,14 +13,14 @@ class GripperService(Node):
 
     def set_gripper(self, request, response):
         traj = JointTrajectory()
-        traj.joint_names = ['ar4_gripper_jaw1_joint', 'ar4_gripper_jaw2_joint']
+        traj.joint_names = ['ar4_gripper_jaw1_joint']
 
         point = JointTrajectoryPoint()
         if request.data:  # True = Open
-            point.positions = [0.014, 0.014]
+            point.positions = [0.014]
             response.message = "Gripper opened"
         else:  # False = Close
-            point.positions = [0.009, 0.009]
+            point.positions = [0.000] # IRL it's 0.01 or 0.011
             response.message = "Gripper closed"
 
         point.time_from_start.sec = 1

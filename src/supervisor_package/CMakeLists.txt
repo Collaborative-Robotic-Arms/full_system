@@ -33,7 +33,23 @@ install(DIRECTORY
 install(PROGRAMS
   supervisor_package/supervisor.py
   DESTINATION lib/${PROJECT_NAME}
-  RENAME supervisor
+  RENAME supervisor)
+  
+install(PROGRAMS
+  supervisor_package/supervisor_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME supervisor_node)
+  
+install(PROGRAMS
+  supervisor_package/ar4_controller_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME ar4_controller_node
+)
+
+install(PROGRAMS
+  supervisor_package/abb_controller_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME abb_controller_node
 )
 
 # Install the mock system

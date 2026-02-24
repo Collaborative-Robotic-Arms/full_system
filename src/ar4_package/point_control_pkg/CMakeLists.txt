@@ -36,14 +36,14 @@ endif()
 # ==========================================================
 # Executable
 # ==========================================================
-add_executable(pose_commander_action
+add_executable(pose_commander
   src/pose_commander.cpp
 )
 
 # ==========================================================
 # Link ROS dependencies
 # ==========================================================
-ament_target_dependencies(pose_commander_action
+ament_target_dependencies(pose_commander
   rclcpp
   rclcpp_action
   moveit_ros_planning_interface
@@ -57,7 +57,7 @@ ament_target_dependencies(pose_commander_action
 # Install
 # ==========================================================
 install(TARGETS
-  pose_commander_action
+  pose_commander
   DESTINATION lib/${PROJECT_NAME}
 )
 

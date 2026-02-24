@@ -1,0 +1,4 @@
+string assembly_id
+---
+dual_arms_msgs/Brick[] plan
+bool success
