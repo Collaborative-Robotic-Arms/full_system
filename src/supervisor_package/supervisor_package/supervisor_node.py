@@ -83,7 +83,7 @@ class AssemblySupervisor(Node):
             t = self.tf_buffer.lookup_transform(
                 'base_link', 
                 'camera', 
-                rclpy.time.Time()) # Get the latest available transform
+                rclpy.time.Time())
 
             # Use tf2_geometry_msgs to translate/rotate the pose
             transformed_pose = tf2_geometry_msgs.do_transform_pose(input_pose, t)
@@ -113,6 +113,7 @@ class AssemblySupervisor(Node):
             r_brick = R.from_quat(get_valid_quat(brick_pose.orientation)).as_euler('xyz', degrees=True)[2]
             r_grasp = R.from_quat(get_valid_quat(grasp_point.orientation)).as_euler('xyz', degrees=True)[2]
             self.get_logger().info(f"Euler Angles (deg) -> Place: {r_place:.2f}, Brick: {r_brick:.2f}, Grasp: {r_grasp:.2f}")
+            
             # 3. Thesis logic
             target_yaw_deg = r_grasp + (r_place - r_brick)
 
@@ -149,14 +150,8 @@ class AssemblySupervisor(Node):
 
         self.get_logger().info(f"Transformed Position: Δx({delta_x:.3f}), Δy({delta_y:.3f}), Δz({delta_z:.3f}) => Target(x={target_x:.3f}, y={target_y:.3f}, z={target_z:.3f})")
         return Pose().position.__class__(x=target_x, y=target_y, z=target_z)
-   
-    # -------------------------
-    # =========================
-    # PARALLEL WORKER MISSIONS
-    # =========================
     
     async def run_abb_mission(self, brick):
-        """Sequential Pick & Place for ABB with complex transform logic."""
         self.abb_busy = True
         self.active_tasks += 1
         self.get_logger().info(f"ABB Worker: Starting mission for Brick {brick.id}")
@@ -193,7 +188,7 @@ class AssemblySupervisor(Node):
                     orientation = self.transform_quaternion(
                         place_pose=brick.place_pose,
                         brick_pose=brick.pickup_pose,
-                        grasp_point=grasp_pose # <--- Changed here too
+                        grasp_point=grasp_pose
                     )
                     
                     if orientation:
@@ -204,7 +199,7 @@ class AssemblySupervisor(Node):
                         place_goal.target_pose.orientation.w = 0.0
                     
                     # Height Adjustment
-                    place_goal.target_pose.position.z = 0.23 
+                    place_goal.target_pose.position.z = 0.22
 
                     # --- STEP 3: PLACE ---
                     self.get_logger().info(f"ABB: Sending Place goal for {brick.id}")
@@ -221,7 +216,6 @@ class AssemblySupervisor(Node):
             self.active_tasks -= 1
 
     async def run_ar4_mission(self, brick):
-        """Truly parallel mission for AR4."""
         self.ar4_busy = True
         self.active_tasks += 1
         self.get_logger().info(f"AR4: Starting mission for Brick {brick.id}")
@@ -260,7 +254,7 @@ class AssemblySupervisor(Node):
                     # orientation = self.transform_quaternion(
                     #     place_pose=brick.place_pose,
                     #     brick_pose=brick.pickup_pose,
-                    #     grasp_point=grasp_pose # <--- Changed here too
+                    #     grasp_point=grasp_pose
                     # )
                     
                     # if orientation:
@@ -281,7 +275,7 @@ class AssemblySupervisor(Node):
             self.active_tasks -= 1
             
     # =========================
-    # MAIN LOOP (YOUR LOGIC)
+    # MAIN LOOP
     # =========================
 
     async def state_machine_loop(self):
@@ -360,43 +354,6 @@ class AssemblySupervisor(Node):
     # =========================
     # HANDLER HELPERS
     # =========================
-
-    async def handle_init(self):
-        self.get_logger().info('Fetching Plan...')
-        if not self.gui_client.wait_for_service(timeout_sec=1.0): return False
-        res = await self.gui_client.call_async(GetAssemblyPlan.Request())
-        if res and res.plan:
-            self.assembly_queue = res.plan
-            return True
-        return False
-
-    async def handle_detect(self):
-        self.get_logger().info('Detecting Bricks...')
-        if not self.camera_client.wait_for_service(timeout_sec=1.0): return False
-        res = await self.camera_client.call_async(DetectBricks.Request())
-        if res:
-            # Transform as per your original logic
-            for brick in res.bricks:
-                brick.pose = self.transform_pose_to_abb(brick.pose)
-            return True
-        return False
-
-    async def handle_grasp_pipeline(self):
-        self.get_logger().info(f'Getting Grasp for {self.current_brick.id}')
-        if not self.grasp_pipeline_client.wait_for_service(timeout_sec=2.0): return False
-        
-        req = GetGrasp.Request()
-        req.brick_index = str(self.current_brick.id)
-        res = await self.grasp_pipeline_client.call_async(req)
-
-        if res and res.success:
-            raw_grasp = res.grasp_point
-            raw_grasp.pose = self.transform_pose_to_abb(raw_grasp.pose)
-            raw_grasp.pose.position.z = 0.22 
-            self.current_grasp_point = raw_grasp
-            return True
-        return False
-
     async def send_action_goal(self, client, goal_msg):
         """Action helper that awaits the physical movement result."""
         if not client.wait_for_server(timeout_sec=5.0): return False
@@ -408,7 +365,6 @@ class AssemblySupervisor(Node):
 # =========================
 # MAIN
 # =========================
-
 async def main(args=None):
     rclpy.init(args=args)
     node = AssemblySupervisor()

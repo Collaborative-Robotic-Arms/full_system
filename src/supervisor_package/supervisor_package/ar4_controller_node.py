@@ -80,6 +80,22 @@ class AR4Controller(Node):
         await self.set_gripper(True)  # Open
         self.get_logger().info(f'AR4 Gripper Opened')
 
+        # ---------- PRE-PICK ----------
+        prepick_pose = deepcopy(target_pose)
+        prepick_pose.position.z += 0.1
+
+        feedback_msg.progress = 0.0
+        feedback_msg.current_status = "PRE_PICK"
+        goal_handle.publish_feedback(feedback_msg)
+
+        prepick_goal = MoveToPose.Goal()
+        prepick_goal.target_pose = prepick_pose
+        prepick_goal.strategy = "PRE_PICK"
+
+        if await self.send_action_goal(self.move_client, prepick_goal) is None:
+            return False
+        
+        # ---------- PICK ----------
         # Step A: Approach
         feedback_msg.progress = 0.2
         feedback_msg.current_status = "APPROACHING"
