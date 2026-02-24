@@ -3,12 +3,12 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from ros2_gui_bridge.msg import Brick, BrickArray
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Pose, Quaternion
 import json
-
+import math
 # Configuration Constants
 CELL_SIZE = 0.03  # Grid cell size 
-Z_HEIGHT = 0.23   # Default placement height 
+Z_HEIGHT = 0.026   # Default placement height 
 
 # World Frame Offsets  
 WORLD_X_OFFSET = 0.51
@@ -16,7 +16,7 @@ WORLD_Y_OFFSET = -0.12
 
 # Map for GUI string-based orientations to degree values
 ORIENTATION_MAP = {
-    "default": 0, "horizontal": 0, "rotated": 90, "vertical": 90,
+    "default": 0, "horizontal": 90, "rotated": 90, "vertical": 0,
     "inverted": 180, "flipped": 270, "upside_down": 180, "left": 270
 }
 
@@ -32,15 +32,27 @@ class BrickProcessor(Node):
     def calculate_world_coords(self, row, col):
         """Transforms grid indices to world coordinates centered on cell."""
         center_offset = CELL_SIZE / 2.0
-        world_x = WORLD_X_OFFSET - (col * CELL_SIZE) - center_offset
-        world_y = WORLD_Y_OFFSET + (row * CELL_SIZE) + center_offset
+        world_x = (WORLD_X_OFFSET + (row * CELL_SIZE) + center_offset)
+        world_y = WORLD_Y_OFFSET + (col * CELL_SIZE) + center_offset
+
+        self.get_logger().debug(f'Grid ({row}, {col}) -> World ({world_x:.3f}, {world_y:.3f})')
         return world_x, world_y
+    
+    def get_quaternion_from_euler(self, yaw_degrees):
+        """Converts degrees (yaw) to a Quaternion message."""
+        yaw = math.radians(yaw_degrees)
+        q = Quaternion()
+        q.x = 0.0
+        q.y = 0.0
+        q.z = math.sin(yaw / 2.0)
+        q.w = math.cos(yaw / 2.0)
+        return q
 
     def listener_callback(self, msg):
         try:
             full_data = json.loads(msg.data)
             raw_shapes = full_data.get('shapes', [])
-
+            self.get_logger().info(f'Received {len(raw_shapes)} raw shapes from GUI.')
             if isinstance(raw_shapes, dict):
                 raw_shapes = list(raw_shapes.values())
 
@@ -52,7 +64,7 @@ class BrickProcessor(Node):
                     self.get_logger().debug(f"Shape 0 Keys: {list(shape.keys())}")
 
                 brick = Brick()
-                
+        
                 # Helper data extraction
                 center_data = shape.get('centerCell', {})
                 pos_data = shape.get('position', {})
@@ -65,24 +77,23 @@ class BrickProcessor(Node):
 
                 # Robust Orientation Handling
                 raw_or = str(shape.get('orientation', 'default')).lower()
-                if raw_or.replace('-', '').isdigit():
-                    brick.orientation = int(raw_or)
-                else:
-                    brick.orientation = ORIENTATION_MAP.get(raw_or, 0)
-
+                deg = ORIENTATION_MAP.get(raw_or, 0) if not raw_or.replace('-', '').isdigit() else int(raw_or)
+  
                 # Grid-to-World Transformation
                 r_val = int(center_data.get('row') or pos_data.get('row') or 0)
                 c_val = int(center_data.get('col') or pos_data.get('col') or 0)
-                world_x, world_y = self.calculate_world_coords(r_val, c_val)
-                
-                # Instantiate Point objects for the msg structure 
-                brick.place_pose = Point() 
-                brick.place_pose.x = float(world_x)
-                brick.place_pose.y = float(world_y)
-                brick.place_pose.z = float(Z_HEIGHT)
 
-                brick.pickup_pose = Point() # Defaulted for perception node to populate 
-                
+                world_x, world_y = self.calculate_world_coords(r_val, c_val)
+                # Instantiate Point objects for the msg structure 
+                # self.get_logger().debug(f'Brick ID: {brick.id}, Type: {brick.type}, Color: {brick.color}, Layer: {brick.layer}, Orientation: {deg}°')
+                brick.place_pose = Pose() 
+                brick.place_pose.position.x = float(world_x)
+                brick.place_pose.position.y = float(world_y)
+                brick.place_pose.position.z = float(Z_HEIGHT)
+                brick.place_pose.orientation = self.get_quaternion_from_euler(deg)
+
+                brick.pickup_pose = Pose() # Defaulted for perception node to populate 
+              
                 brick.location = 0 # Initialized for Task Allocation
                 output_msg.bricks.append(brick)
 

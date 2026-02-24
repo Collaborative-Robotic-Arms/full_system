@@ -16,7 +16,7 @@ def generate_launch_description():
         # 2. Brick Processor (Converts JSON Strings -> ROS Messages)
         Node(
             package='ros2_gui_bridge',
-            executable='brick_processor.py',
+            executable='brick_processor2.py',
             name='brick_processor',
             output='screen'
         ),

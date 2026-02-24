@@ -29,6 +29,7 @@ install(PROGRAMS
   scripts/brick_processor.py
   scripts/assembly_plan.py
   scripts/mock_detector.py
+  scripts/brick_processor2.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
