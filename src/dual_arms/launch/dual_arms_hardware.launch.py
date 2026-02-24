@@ -1,47 +1,22 @@
 import os
 import sys
 import yaml
-from ament_index_python.packages import get_package_share_directory
-from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable, RegisterEventHandler, TimerAction, ExecuteProcess
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, FindExecutable, PathJoinSubstitution,LaunchConfiguration
-from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
-from launch.event_handlers import OnProcessExit, OnProcessStart
 
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
 from launch.conditions import IfCondition
-from launch.event_handlers import OnProcessStart
+from launch.event_handlers import OnProcessExit, OnProcessStart
 from launch.substitutions import (
-    LaunchConfiguration,
     Command,
     FindExecutable,
+    LaunchConfiguration,
     PathJoinSubstitution,
 )
 
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterFile
-from launch_ros.substitutions import FindPackageShare
-import os
-import yaml
-
-from ament_index_python.packages import get_package_share_directory
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_param_builder import ParameterBuilder
-from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterFile
-from launch_ros.substitutions import FindPackageShare
-
-from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.conditions import IfCondition
-from launch.substitutions import (
-    Command,
-    FindExecutable,
-    LaunchConfiguration,
-    PathJoinSubstitution,
-)
 
 
 # LOAD FILE:
@@ -52,7 +27,6 @@ def load_file(package_name, file_path):
         with open(absolute_file_path, 'r') as file:
             return file.read()
     except EnvironmentError:
-        # parent of IOError, OSError and WindowsError where available.
         return None
 
 # EVALUATE INPUT ARGUMENTS:
@@ -73,41 +47,51 @@ def load_yaml(package_name, file_path):
         return None
 
 def generate_launch_description():
-
     
-    #CONFIGS available: ABB, AR4, Dual Arms
+    # CONFIGS available: ABB, AR4, Dual Arms
     CONFIG = AssignArgument("config")
 
-    # Launch arguments for ar4
+    # =============================================================================
+    # === 1. LAUNCH CONFIGURATIONS                                              ===
+    # =============================================================================
     serial_port = LaunchConfiguration("serial_port")
     calibrate = LaunchConfiguration("calibrate")
     arduino_serial_port = LaunchConfiguration("arduino_serial_port")
-    use_sim_time = False
+    use_sim_time = LaunchConfiguration("use_sim_time")
     include_gripper = LaunchConfiguration("include_gripper")
     rviz_config_file = LaunchConfiguration("rviz_config_file")
-    ar_model_config = LaunchConfiguration("ar_model")
+    ar_model = LaunchConfiguration("ar_model")
     tf_prefix = LaunchConfiguration("tf_prefix")
     moveit_servo = LaunchConfiguration("moveit_servo")
 
-
-
-
     PACKAGE_NAME = "dual_arms"
+    pkg_share = get_package_share_directory('dual_arms')
+
     # =============================================================================
     # === 2. CONFIGURATION LOADING                                              ===
     # =============================================================================
-    pkg_share = get_package_share_directory('dual_arms')
-
+    
+    # Pass all AR4 arguments to the Xacro file
     robot_description_content = Command([
         PathJoinSubstitution([FindExecutable(name="xacro")]), " ",
-        PathJoinSubstitution([get_package_share_directory('dual_arms'), "urdf", "dual_arms_hardware.xacro"]),
+        PathJoinSubstitution([pkg_share, "urdf", "dual_arms_hardware.xacro"]), " ",
+        "ar_model:=", ar_model, " ",
+        "serial_port:=", serial_port, " ",
+        "calibrate:=", calibrate, " ",
+        "tf_prefix:=", tf_prefix, " ",
+        "include_gripper:=", include_gripper, " ",
+        "arduino_serial_port:=", arduino_serial_port,
     ])
     
     robot_description = {"robot_description": ParameterValue(robot_description_content, value_type=str)}
 
+    # Pass relevant arguments to the SRDF semantic Xacro file as well
     robot_description_semantic_content = Command([
         PathJoinSubstitution([FindExecutable(name="xacro")]), " ",
-        PathJoinSubstitution([get_package_share_directory('dual_arms'), "config/hardware", "dual_arms_hardware.srdf"]),
+        PathJoinSubstitution([pkg_share, "config/hardware", "dual_arms_hardware.srdf"]), " ",
+        "name:=", ar_model, " ",
+        "tf_prefix:=", tf_prefix, " ",
+        "include_gripper:=", include_gripper,
     ])
     robot_description_semantic = {"robot_description_semantic": ParameterValue(robot_description_semantic_content, value_type=str)}
     
@@ -116,6 +100,7 @@ def generate_launch_description():
 
     joint_limits_yaml = load_yaml("dual_arms", "config/hardware/joint_limits_hardware.yaml")
     robot_description_planning = {"robot_description_planning": joint_limits_yaml}
+    
     servo_params = {
         "moveit_servo": ParameterBuilder("dual_arms")
         .yaml("config/ar4_servo.yaml")
@@ -133,20 +118,17 @@ def generate_launch_description():
     if ompl_yaml:
         ompl_planning_pipeline_config["move_group"].update(ompl_yaml)
     
-    # MoveIt!2 Controllers:
+    # MoveIt!2 Controllers & Parameters
     moveit_simple_controllers_yaml = load_yaml("dual_arms", "config/hardware/moveit_controllers_hardware.yaml")
-
-    # MoveIt!2 Parameters:
     moveit_controllers = moveit_simple_controllers_yaml
     
-    # trajectory_execution = {"moveit_manage_controllers": True}
     trajectory_execution = {
         "moveit_manage_controllers": True,
         "trajectory_execution.allowed_execution_duration_scaling": 1.2,
         "trajectory_execution.allowed_goal_duration_margin": 0.5,
         "trajectory_execution.allowed_start_tolerance": 0.01,
     }
-    # planning_scene_monitor_parameters = {"publish_planning_scene": True}
+    
     planning_scene_monitor_parameters = {
         "publish_planning_scene": True,
         "publish_geometry_updates": True,
@@ -155,8 +137,6 @@ def generate_launch_description():
         "publish_robot_description_semantic": True,
     }
 
-
-    
     # =============================================================================
     # === 3. NODE DEFINITIONS                                                   ===
     # =============================================================================
@@ -164,25 +144,8 @@ def generate_launch_description():
         package="robot_state_publisher",
         executable="robot_state_publisher",
         output="both",
-        parameters=[robot_description, {"use_sim_time": False}]
+        parameters=[robot_description, {"use_sim_time": use_sim_time}]
     )
-
-    # --- MOVEIT SERVO NODE (Output Fix) ---
-    # The logs showed it defaulting to /panda_arm_controller/joint_trajectory.
-    # We fix this by explicitly setting the command_out_topic parameter.
- 
-    # visp_controller_node = Node(
-    #     package="perception_setup",
-    #     executable="visp_ibvs_controller",
-    #     output="screen",
-    #     parameters=[{"use_sim_time": True}]
-    # )
-    # tf_camera_link = Node(
-    #     package="tf2_ros",
-    #     executable="static_transform_publisher",
-    #     arguments = ["0", "0", "0", "0", "0", "0", "ar4_ee_link", "ar4_camera_link"],
-    #     parameters=[{"use_sim_time": True}]
-    # )
 
     move_group_node = Node(
         package="moveit_ros_move_group",
@@ -199,32 +162,37 @@ def generate_launch_description():
             servo_params,  
             {"moveit_servo.command_out_topic": "/ar4_trajectory_controller/joint_trajectory"},
             planning_scene_monitor_parameters,
-            {"use_sim_time": False},
+            {"use_sim_time": use_sim_time},
         ],
     )
 
     rviz_node = Node(
         package="rviz2", executable="rviz2", name="rviz2",
         output="log",
-        arguments=["-d", os.path.join(get_package_share_directory('dual_arms'), "config", "moveit.rviz")],
-        parameters=[robot_description, robot_description_semantic, ompl_planning_pipeline_config, robot_description_kinematics, robot_description_planning,{"use_sim_time": False}],
+        arguments=["-d", rviz_config_file],
+        parameters=[
+            robot_description, 
+            robot_description_semantic, 
+            ompl_planning_pipeline_config, 
+            robot_description_kinematics, 
+            robot_description_planning,
+            {"use_sim_time": use_sim_time}
+        ],
     )
 
-
-        # ros2_control:
-    ros2_controllers_path = os.path.join(get_package_share_directory("dual_arms"), "config/hardware", "dual_arms_controller_hardware.yaml")
+    # ros2_control
+    ros2_controllers_path = os.path.join(pkg_share, "config/hardware", "dual_arms_controller_hardware.yaml")
     ros2_control_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
         parameters=[robot_description, ros2_controllers_path],
         output="both",
-        #arguments=["--ros-args", "--log-level", "debug"],
     )
 
     joint_state_broadcaster_spawner = Node(
         package="controller_manager", executable="spawner",
         arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager","--switch-timeout", "30.0"],
-        parameters=[{"use_sim_time": False}],
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     ar4_controller_spawner = Node(
@@ -238,9 +206,7 @@ def generate_launch_description():
         arguments=["irb120_controller", "--controller-manager", "/controller_manager"],
     )
 
-
-    # ============================================= #
-    # ============== ABB: RWS CLIENT ============== #
+    # ABB RWS CLIENT
     rws_client = Node(
         package="abb_rws_client",
         executable="rws_client",
@@ -252,94 +218,52 @@ def generate_launch_description():
             {"robot_nickname": "ROB_1"},
             {"polling_rate": 5.0},
             {"no_connection_timeout": False},
-            
         ],
-        #arguments=["--ros-args", "--log-level", "debug"],
     )
 
-
-    # ============================================================================= #
-    # Servo Configuration
-    acceleration_filter_update_period = {"update_period": 0.01}
-    planning_group_name = {"planning_group_name": "ar_manipulator"}
-
-    # servo_node = Node(
-    #     package="moveit_servo",
-    #     executable="servo_node",
-    #     parameters=[
-    #         servo_params,
-    #         acceleration_filter_update_period,
-    #         planning_group_name,
-    #         robot_description,
-    #         robot_description_semantic,
-    #         robot_description_kinematics,
-    #         joint_limits,
-    #         planning_scene_monitor_parameters,
-    #         {"use_sim_time": use_sim_time},
-    #     ],
-    #     output="screen",
-    #     condition=IfCondition(moveit_servo),
-    # )
-
+    # =============================================================================
+    # === 4. LAUNCH DECLARATIONS                                                ===
+    # =============================================================================
     ld = LaunchDescription()
+    
+    # From driver.launch.py & moveit.launch.py
     ld.add_action(DeclareLaunchArgument("serial_port", default_value="/dev/ttyACM0"))
-    ld.add_action(
-        DeclareLaunchArgument(
-            "calibrate", default_value="True", choices=["True", "False"]
-        )
-    )
-    ld.add_action(
-        DeclareLaunchArgument("arduino_serial_port", default_value="/dev/ttyUSB0")
-    )
-    # ld.add_action(
-    #     DeclareLaunchArgument(
-    #         "include_gripper", default_value="True", choices=["True", "False"]
-    #     )
-    # )
-    ld.add_action(
-        DeclareLaunchArgument(
-            "moveit_servo",
-            default_value="False",
-            choices=["True", "False"],
-            description="Run moveit2 servo",
-        )
-    )
-
-
-
-        # Event-based controller spawners
-    # ld.add_action(
-    #     RegisterEventHandler(
-    #         OnProcessStart(
-    #             target_action=controller_manager_node,
-    #             on_start=[
-    #                 spawn_joint_state_broadcaster,
-    #                 spawn_joint_controller,
-    #                 spawn_gripper_controller,
-    #             ],
-    #         )
-    #     )
-    # )
-
-
+    ld.add_action(DeclareLaunchArgument("calibrate", default_value="True", choices=["True", "False"]))
+    ld.add_action(DeclareLaunchArgument("arduino_serial_port", default_value="/dev/ttyUSB0"))
+    ld.add_action(DeclareLaunchArgument("include_gripper", default_value="True", choices=["True", "False"]))
+    ld.add_action(DeclareLaunchArgument("tf_prefix", default_value="", description="Prefix for AR4 tf_tree"))
+    ld.add_action(DeclareLaunchArgument("ar_model", default_value="mk3", choices=["mk1", "mk2", "mk3"], description="Model of AR4"))
+    ld.add_action(DeclareLaunchArgument("moveit_servo", default_value="False", choices=["True", "False"], description="Run moveit2 servo"))
+    ld.add_action(DeclareLaunchArgument("use_sim_time", default_value="False", description="Make MoveIt use simulation time."))
+    
+    rviz_config_file_default = os.path.join(pkg_share, "config", "moveit.rviz")
+    ld.add_action(DeclareLaunchArgument("rviz_config_file", default_value=rviz_config_file_default, description="Full path to the RViz configuration file"))
 
     # ========== CELL INFORMATION ========== #
     print("")
     print("===== " + PACKAGE_NAME + ": Robot Bringup + MoveIt!2 Framework (" + PACKAGE_NAME + "_bringup) =====")
-    print("ABB Robot IP Address -> " + '192.168.125.1')
+    print("ABB Robot IP Address -> 192.168.125.1")
     print("Robot configuration:")
     print("")
 
+    # =============================================================================
+    # === 5. ADD NODES TO LAUNCH DESCRIPTION                                    ===
+    # =============================================================================
     ld.add_action(rviz_node)
     ld.add_action(robot_state_publisher_node)
     ld.add_action(move_group_node)
     ld.add_action(ros2_control_node)
     ld.add_action(joint_state_broadcaster_spawner)
     ld.add_action(rws_client)
-    ld.add_action(RegisterEventHandler(
-            OnProcessExit(target_action=joint_state_broadcaster_spawner, on_exit=[irb120_controller_spawner,ar4_controller_spawner])
-        ))
-    # =============================================================================
-    # === 5. LAUNCH RETURN                                                      ===
-    # =============================================================================
+    
+    # Event Handlers to trigger spawners
+    ld.add_action(
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=joint_state_broadcaster_spawner, 
+                on_exit=[irb120_controller_spawner, ar4_controller_spawner]
+            )
+        )
+    )
+
     return ld

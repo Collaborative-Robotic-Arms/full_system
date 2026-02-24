@@ -22,7 +22,7 @@ class AR4Controller(Node):
 
         # --- ARM ACTION CLIENTS ---
         self.move_client = ActionClient(self, MoveToPose, 'ar4_point_control', callback_group=self.cb_group)
-        self.vs_client = ActionClient(self, AlignToTarget, 'ar4_visual_servo', callback_group=self.cb_group)
+        # self.vs_client = ActionClient(self, AlignToTarget, 'ar4_visual_servo', callback_group=self.cb_group)
 
         # --- ACTION SERVER TO RECEIVE SUPERVISOR TASKS ---
         self.execute_task_server = ActionServer(

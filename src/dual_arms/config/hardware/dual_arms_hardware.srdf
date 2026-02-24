@@ -1,38 +1,30 @@
 <?xml version="1.0" ?>
-<robot name="dual_arms_with_environment">
+<robot name="dual_arms_with_environment" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-    <!-- ================= END EFFECTOR DEFINITIONS ================= -->
-    <!-- These map the tool links to their corresponding planning groups. -->
-    
-    <!-- AR4 End-Effector: Uses the ar_gripper group attached to the ar_manipulator arm -->
-    <!-- <end_effector name="ar4_eef" parent_link="ar4_ee_link" group="ar_gripper" parent_group="ar_manipulator"/> -->
+    <xacro:arg name="name" default="mk3"/>
+    <xacro:arg name="tf_prefix" default="ar4_"/>
+    <xacro:arg name="include_gripper" default="True"/>
 
-    <!-- <end_effector name="ar4_eef" parent_link="ar4_ee_link" group="ar_gripper" parent_group="ar_manipulator_servo"/> -->
-
-    
-    <!-- IRB120 End-Effector: Uses the irb120_gripper group attached to the irb120_arm -->
     <end_effector name="irb120_eef" parent_link="tool0" group="irb120_gripper" parent_group="irb120_arm"/>
 
-    <!-- ================= ARM PLANNING GROUPS (Kinematic Chains) ================= -->
     <group name="irb120_arm">
         <chain base_link="base_link" tip_link="tool0"/>
     </group>
+  
     <group name="ar_manipulator">
-        <chain base_link="ar4_base_link" tip_link="ar4_ee_link"/>
+        <chain base_link="$(arg tf_prefix)base_link" tip_link="$(arg tf_prefix)ee_link"/>
     </group>
+    
     <group name="ar_manipulator_servo">
-        <chain base_link="ar4_base_link" tip_link="ar4_ee_link"/>
+        <chain base_link="$(arg tf_prefix)base_link" tip_link="$(arg tf_prefix)ee_link"/>
     </group>
 
-
-    <!-- COMBINED ARM GROUP -->
     <group name="dual_arms">
         <group name="ar_manipulator"/>
         <group name="ar_manipulator_servo"/>
         <group name="irb120_arm"/>
     </group>
 
-    <!-- ================= GROUP STATES (Home Positions) ================= -->
     <group_state group="irb120_arm" name="home">
         <joint name="joint_1" value="0"/>
         <joint name="joint_2" value="0"/>
@@ -41,44 +33,42 @@
         <joint name="joint_5" value="1.5708"/>
         <joint name="joint_6" value="0"/>
     </group_state>
+
     <group_state group="ar_manipulator" name="home">
-        <joint name="ar4_joint_1" value="0"/>
-        <joint name="ar4_joint_2" value="0"/>
-        <joint name="ar4_joint_3" value="0"/>
-        <joint name="ar4_joint_4" value="0"/>
-        <joint name="ar4_joint_5" value="1.5708"/>
-        <joint name="ar4_joint_6" value="0"/>
+        <joint name="$(arg tf_prefix)joint_1" value="0"/>
+        <joint name="$(arg tf_prefix)joint_2" value="0"/>
+        <joint name="$(arg tf_prefix)joint_3" value="0"/>
+        <joint name="$(arg tf_prefix)joint_4" value="0"/>
+        <joint name="$(arg tf_prefix)joint_5" value="1.5708"/>
+        <joint name="$(arg tf_prefix)joint_6" value="0"/>
     </group_state>
 
     <group_state group="ar_manipulator_servo" name="home">
-        <joint name="ar4_joint_1" value="0"/>
-        <joint name="ar4_joint_2" value="0"/>
-        <joint name="ar4_joint_3" value="0"/>
-        <joint name="ar4_joint_4" value="0"/>
-        <joint name="ar4_joint_5" value="1.5708"/>
-        <joint name="ar4_joint_6" value="0"/>
+        <joint name="$(arg tf_prefix)joint_1" value="0"/>
+        <joint name="$(arg tf_prefix)joint_2" value="0"/>
+        <joint name="$(arg tf_prefix)joint_3" value="0"/>
+        <joint name="$(arg tf_prefix)joint_4" value="0"/>
+        <joint name="$(arg tf_prefix)joint_5" value="1.5708"/>
+        <joint name="$(arg tf_prefix)joint_6" value="0"/>
     </group_state>
 
-        <group_state name="upright" group="ar_manipulator">
-      <joint name="ar4_joint_1" value="0" />
-      <joint name="ar4_joint_2" value="-0.087" />
-      <joint name="ar4_joint_3" value="-1.4" />
-      <joint name="ar4_joint_4" value="0" />
-      <joint name="ar4_joint_5" value="0" />
-      <joint name="ar4_joint_6" value="0" />
+    <group_state name="upright" group="ar_manipulator">
+      <joint name="$(arg tf_prefix)joint_1" value="0" />
+      <joint name="$(arg tf_prefix)joint_2" value="-0.087" />
+      <joint name="$(arg tf_prefix)joint_3" value="-1.4" />
+      <joint name="$(arg tf_prefix)joint_4" value="0" />
+      <joint name="$(arg tf_prefix)joint_5" value="0" />
+      <joint name="$(arg tf_prefix)joint_6" value="0" />
     </group_state>
 
-        <group_state name="upright" group="ar_manipulator_servo">
-      <joint name="ar4_joint_1" value="0" />
-      <joint name="ar4_joint_2" value="-0.087" />
-      <joint name="ar4_joint_3" value="-1.4" />
-      <joint name="ar4_joint_4" value="0" />
-      <joint name="ar4_joint_5" value="0" />
-      <joint name="ar4_joint_6" value="0" />
+    <group_state name="upright" group="ar_manipulator_servo">
+      <joint name="$(arg tf_prefix)joint_1" value="0" />
+      <joint name="$(arg tf_prefix)joint_2" value="-0.087" />
+      <joint name="$(arg tf_prefix)joint_3" value="-1.4" />
+      <joint name="$(arg tf_prefix)joint_4" value="0" />
+      <joint name="$(arg tf_prefix)joint_5" value="0" />
+      <joint name="$(arg tf_prefix)joint_6" value="0" />
     </group_state>
-
-    <!-- ================= DISABLE COLLISIONS (Required) ================= -->
-    <!-- (All collision definitions remain here as provided previously) -->
 
     <disable_collisions link1="base_link" link2="link_1" reason="Adjacent" />
     <disable_collisions link1="link_1" link2="link_2" reason="Adjacent" />
@@ -86,27 +76,22 @@
     <disable_collisions link1="link_3" link2="link_4" reason="Adjacent" />
     <disable_collisions link1="link_4" link2="link_5" reason="Adjacent" />
     <disable_collisions link1="link_5" link2="link_6" reason="Adjacent" />
-    <disable_collisions link1="ar4_base_link" link2="ar4_link_1" reason="Adjacent" />
-    <disable_collisions link1="ar4_link_1" link2="ar4_link_2" reason="Adjacent" />
-    <disable_collisions link1="ar4_link_2" link2="ar4_link_3" reason="Adjacent" />
-    <disable_collisions link1="ar4_link_3" link2="ar4_link_4" reason="Adjacent" />
-    <disable_collisions link1="ar4_link_4" link2="ar4_link_5" reason="Adjacent" />
-    <disable_collisions link1="ar4_link_5" link2="ar4_link_6" reason="Adjacent" />
-
-
+    
+    <disable_collisions link1="$(arg tf_prefix)base_link" link2="$(arg tf_prefix)link_1" reason="Adjacent" />
+    <disable_collisions link1="$(arg tf_prefix)link_1" link2="$(arg tf_prefix)link_2" reason="Adjacent" />
+    <disable_collisions link1="$(arg tf_prefix)link_2" link2="$(arg tf_prefix)link_3" reason="Adjacent" />
+    <disable_collisions link1="$(arg tf_prefix)link_3" link2="$(arg tf_prefix)link_4" reason="Adjacent" />
+    <disable_collisions link1="$(arg tf_prefix)link_4" link2="$(arg tf_prefix)link_5" reason="Adjacent" />
+    <disable_collisions link1="$(arg tf_prefix)link_5" link2="$(arg tf_prefix)link_6" reason="Adjacent" />
 
     <disable_collisions link1="link_6" link2="flange" reason="Adjacent" />
     <disable_collisions link1="flange" link2="tool0" reason="Adjacent" />
     <disable_collisions link1="link_6" link2="tool0" reason="Never" />
 
-    
     <disable_collisions link1="abb_table" link2="ar4_table" reason="Adjacent" />
     <disable_collisions link1="abb_table" link2="camera" reason="Adjacent" />
     <disable_collisions link1="ar4_table" link2="camera" reason="Never" />
     <disable_collisions link1="abb_table" link2="base_link" reason="Adjacent" />
-    <disable_collisions link1="ar4_table" link2="ar4_base_link" reason="Adjacent" />
+    <disable_collisions link1="ar4_table" link2="$(arg tf_prefix)base_link" reason="Adjacent" />
 
-    <!-- <disable_collisions link1="ar4_gripper_jaw1_link" link2="ar4_gripper_jaw2_link" reason="Default" />
-    <disable_collisions link1="gripper_ABB_Gripper_Finger_1" link2="gripper_ABB_Gripper_Finger_2" reason="Default" /> -->
-
-</robot>
+    </robot>

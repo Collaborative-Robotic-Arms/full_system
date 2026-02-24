@@ -10,25 +10,25 @@ def generate_launch_description():
 
     # --- 1. LOCATE OTHER LAUNCH FILES ---
     # We find the paths to the launch files you currently run manually
-    moveit_launch_path = PathJoinSubstitution([
-        FindPackageShare('dual_arms'), 'launch', 'moveit_dualarms.launch.py'
-    ])
+    # moveit_launch_path = PathJoinSubstitution([
+    #     FindPackageShare('dual_arms'), 'launch', 'moveit_dualarms.launch.py'
+    # ])
 
-    abb_server_launch_path = PathJoinSubstitution([
-        FindPackageShare('abb_highlevel_bridge'), 'launch', 'server_abb.launch.py'
-    ])
+    # abb_server_launch_path = PathJoinSubstitution([
+    #     FindPackageShare('abb_highlevel_bridge'), 'launch', 'server_abb.launch.py'
+    # ])
 
     # --- 2. DEFINE INFRASTRUCTURE (MoveIt & Drivers) ---
     
     # Launch MoveIt (The heaviest process)
-    launch_moveit = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(moveit_launch_path)
-    )
+    # launch_moveit = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource(moveit_launch_path)
+    # )
 
     # Launch ABB Driver Server
-    launch_abb_server = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(abb_server_launch_path)
-    )
+    # launch_abb_server = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource(abb_server_launch_path)
+    # )
 
     # Launch AR4 C++ Action Server (Pose)
     node_ar4_pose = Node(
@@ -49,12 +49,12 @@ def generate_launch_description():
     # --- 3. DEFINE CONTROLLERS (Python Adapters) ---
     # These act as the bridge between Supervisor and Action Servers
     
-    node_abb_controller = Node(
-        package='supervisor_package',
-        executable='abb_controller_node',
-        name='abb_controller',
-        output='screen'
-    )
+    # node_abb_controller = Node(
+    #     package='supervisor_package',
+    #     executable='abb_controller_node',
+    #     name='abb_controller',
+    #     output='screen'
+    # )
 
     node_ar4_controller = Node(
         package='supervisor_package',
@@ -66,8 +66,8 @@ def generate_launch_description():
     return LaunchDescription([
         # A. Start Infrastructure Immediately
         LogInfo(msg=">>> PHASE 1: Starting MoveIt and Drivers..."),
-        launch_moveit,
-        launch_abb_server,
+        # launch_moveit,
+        # launch_abb_server,
         node_ar4_pose,
         node_ar4_gripper,
 
@@ -77,7 +77,7 @@ def generate_launch_description():
             period=5.0,
             actions=[
                 LogInfo(msg=">>> PHASE 2: Starting Robot Controllers..."),
-                node_abb_controller, 
+                # node_abb_controller, 
                 node_ar4_controller
             ]
         )
