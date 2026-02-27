@@ -151,6 +151,8 @@ ament_target_dependencies(
   rclcpp
   moveit_ros_planning_interface
   geometry_msgs
+  std_msgs          
+  trajectory_msgs
 )
 
 add_executable(ar4_pose_server src/ar4_pose_server.cpp)

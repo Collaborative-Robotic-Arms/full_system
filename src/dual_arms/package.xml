@@ -22,6 +22,7 @@
   <depend>yaml-cpp</depend>
   <depend>ament_index_cpp</depend>
   <depend>action_msgs</depend>
+  <depend>supervisor_package</depend>
 
   <!-- 🔹 Launch -->
   <depend>launch</depend>

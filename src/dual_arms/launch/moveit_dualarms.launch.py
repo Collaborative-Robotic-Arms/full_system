@@ -127,7 +127,13 @@ def generate_launch_description():
         "dual_arms", "config/moveit_controllers.yaml"
     )
 
-    trajectory_execution = {"moveit_manage_controllers": True}
+    trajectory_execution = {
+    "moveit_manage_controllers": True,
+    "trajectory_execution.execution_duration_monitoring": False,
+    "trajectory_execution.allowed_execution_duration_scaling": 1.2,
+    # THIS IS THE CRITICAL LINE:
+    "trajectory_execution.execution_velocity_scaling": 1.0,
+}
 
     servo_params = load_yaml("dual_arms", "config/ar4_servo.yaml")
 
@@ -233,6 +239,17 @@ def generate_launch_description():
             ompl_planning_pipeline_config,
             robot_description_kinematics,
             robot_description_planning,
+            {"use_sim_time": True},
+        ],
+    )
+    dual_arms_command_node = Node(
+        package="dual_arms",
+        executable="dual_arms_controller",
+        output="screen",
+        parameters=[
+            robot_description,
+            robot_description_semantic,
+            robot_description_kinematics,
             {"use_sim_time": True},
         ],
     )
@@ -380,6 +397,7 @@ def generate_launch_description():
             ros_gz_image_bridge,
             # moveit_servo_node,
             tf_camera_link,
+            dual_arms_command_node,
             # diagnostic_topic_check,
             RegisterEventHandler(
                 OnProcessExit(

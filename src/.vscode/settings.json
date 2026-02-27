@@ -1,3 +1,12 @@
 {
-    "cmake.sourceDirectory": "/home/marwan/full_system/src/abb_package/ros2_RobotiqGripper"
+    "cmake.sourceDirectory": "/home/marwan/full_system/src/abb_package/ros2_RobotiqGripper",
+    "ROS2.distro": "jazzy",
+    "python.autoComplete.extraPaths": [
+        "/opt/ros/jazzy/lib/python3.12/site-packages",
+        "/home/kareem-saleh/gp_ws/src"
+    ],
+    "python.analysis.extraPaths": [
+        "/opt/ros/jazzy/lib/python3.12/site-packages",
+        "/home/kareem-saleh/gp_ws/src"
+    ]
 }
