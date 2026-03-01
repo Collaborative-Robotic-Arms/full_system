@@ -1,0 +1,9 @@
+# Request for handover zone information
+---
+# Response with zone details
+geometry_msgs/Pose zone_center
+float64 radius_x
+float64 radius_y
+float64 radius_z
+float64 approach_margin
+bool zone_active

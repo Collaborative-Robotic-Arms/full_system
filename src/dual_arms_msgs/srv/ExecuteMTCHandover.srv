@@ -1,0 +1,10 @@
+# Request for MTC-based handover execution
+geometry_msgs/Pose ar4_start_pose
+geometry_msgs/Pose abb_start_pose
+geometry_msgs/Pose handover_pose
+string object_id
+---
+# Response
+bool success
+string status_message
+string execution_id

@@ -1,0 +1,119 @@
+# Hybrid MTC Controller Configuration File
+# Parameters for zone-based control switching and collaborative handover
+
+mtc_controller:
+  controller_mode: "HYBRID"  # HYBRID or MTC_ONLY or MULTITHREADED_ONLY
+  
+  # Handover zone configuration (center of the zone where both arms meet)
+  handover_zone:
+    center:
+      x: 0.5       # meters from base frame origin
+      y: 0.0
+      z: 0.3
+    
+    # Dimensions of the handover zone (half-sizes in each direction)
+    radius:
+      x: 0.20      # 20cm in X direction
+      y: 0.20      # 20cm in Y direction
+      z: 0.20      # 20cm in Z direction
+    
+    # Distance around handover zone where MTC is activated
+    approach_margin: 0.15    # 15cm before entering critical zone
+    
+    # Safety distance between gripper tools during handover
+    min_arm_separation: 0.10  # 10cm minimum distance between TCP points
+
+  # Motion planning configuration
+  motion_planning:
+    planner_id: "RRTstar"     # MoveIt motion planner
+    max_velocity_scaling: 0.3
+    max_acceleration_scaling: 0.2
+    planning_time: 5.0        # seconds
+    group_name: "dual_arms"
+    
+    # Per-arm planning parameters
+    ar4_arm:
+      group_name: "ar4_arm"
+      planning_time: 3.0
+      link_name: "ar4_tool_link"
+    
+    abb_arm:
+      group_name: "abb_arm"
+      planning_time: 3.0
+      link_name: "abb_tool_link"
+
+  # Synchronization thresholds for collaborative control
+  synchronization:
+    # Time tolerance for synchronized movements
+    time_tolerance_ms: 100
+    
+    # Position tolerance when synchronizing arm movements
+    position_tolerance_m: 0.01
+    
+    # Orientation tolerance (in degrees)
+    orientation_tolerance_deg: 2.0
+
+  # Handover sequence stages
+  handover_sequence:
+    # Stage 1: Approach
+    approach:
+      enabled: true
+      distance_mm: 50      # Approach distance
+      strategy: "MIN_TIME" # MIN_TIME or MIN_DISTANCE
+    
+    # Stage 2: Gripper synchronization
+    gripper_sync:
+      enabled: true
+      ar4_open_delay_ms: 100   # Delay before opening AR4 gripper
+      abb_close_delay_ms: 100  # Delay before closing ABB gripper
+      verification_timeout_ms: 2000
+    
+    # Stage 3: Retract
+    retract:
+      enabled: true
+      distance_mm: 150     # Retraction distance
+      duration_s: 2.0
+
+  # Safety constraints
+  safety:
+    # Enable collision checking during planning
+    collision_checking: true
+    
+    # Allow collision between gripper tools during handover
+    allow_gripper_collision: true
+    
+    # Maximum gripper speed (percentage of full speed)
+    max_gripper_speed: 50
+    
+    # Force limits for collision detection (Newtons)
+    force_limit: 50.0
+    
+    # Timeout for any operation (seconds)
+    operation_timeout: 30.0
+
+# Supervisor integration parameters
+supervisor:
+  enable_mtc_mode: true
+  handover_trigger_distance: 0.30  # Distance at which to switch to MTC (meters)
+  
+  # Task routing logic
+  task_routing:
+    ar4_primary_tasks: ["PICK_FROM_STACK", "DETAILED_ASSEMBLY"]
+    abb_primary_tasks: ["PLACE_ON_CONSTRUCTION", "HEAVY_OBJECTS"]
+    collaborative_tasks: ["HANDOVER", "SYNCHRONIZED_ASSEMBLY"]
+
+# Diagnostics and logging
+diagnostics:
+  log_level: "INFO"  # DEBUG, INFO, WARN, ERROR
+  
+  # Enable detailed zone diagnostics
+  zone_monitoring: true
+  zone_diagnostic_rate: 2.0  # Hz (publish diagnostics every 0.5 sec)
+  
+  # Performance monitoring
+  track_task_duration: true
+  track_planning_metrics: true
+  
+  # Visualization
+  publish_markers: true
+  marker_life_time_s: 30.0

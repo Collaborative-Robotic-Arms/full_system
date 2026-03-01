@@ -4,10 +4,15 @@
     <pose>0 0 0 0 0 0</pose> 
     <link name='link'>
       <inertial>
-        <mass>0.1</mass>
+        <mass>0.15</mass>
+        <pose>0.015 0.029 0.02 0 0 0</pose>
         <inertia>
-          <ixx>0.0001</ixx> <ixy>0</ixy> <ixz>0</ixz>
-          <iyy>0.0001</iyy> <iyz>0</iyz> <izz>0.0001</izz>
+          <ixx>2.0e-4</ixx>
+          <iyy>6.0e-4</iyy>
+          <izz>7.0e-4</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
         </inertia>
       </inertial>
 
@@ -38,6 +43,28 @@
       <collision name='stud'>
         <pose>0.015 0.029 0.044 0 0 0</pose> 
         <geometry><box><size>0.022 0.058 0.012</size></box></geometry>
+      </collision>
+      <collision name="grasp_proxy">
+        <pose>0.015 0.029 0.02 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.03 0.058 0.04</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.5</mu>
+              <mu2>1.5</mu2>
+            </ode>
+          </friction>
+          <contact>
+            <ode>
+              <kp>1e6</kp>
+              <kd>1.0</kd>
+            </ode>
+          </contact>
+        </surface>
       </collision>
 
     </link>
