@@ -11,6 +11,7 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
+
 # 2. Generate the interfaces
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Brick.msg"
@@ -23,8 +24,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetAssemblyPlan.srv"   
   "srv/DetectBricks.srv"      
   "srv/GetGrasp.srv"
+  "srv/GetHandoverZone.srv"
   DEPENDENCIES geometry_msgs std_msgs
 )
+ament_export_dependencies(rosidl_default_runtime)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
