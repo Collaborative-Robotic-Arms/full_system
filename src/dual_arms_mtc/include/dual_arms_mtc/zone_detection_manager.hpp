@@ -4,6 +4,7 @@
 #include <geometry_msgs/msg/pose.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <dual_arms_msgs/srv/get_handover_zone.hpp>
+#include <dual_arms_mtc/control_strategy.hpp>
 #include <memory>
 #include <atomic>
 #include <vector>
@@ -16,6 +17,16 @@ enum class ZoneType {
     APPROACH_ZONE,  // Entering handover vicinity
     HANDOVER_ZONE,  // Critical handover area
     RETRACT_ZONE    // Leaving handover area
+};
+
+/**
+ * @brief Defines operation zones for parallel vs sequential control
+ */
+enum class OperationZone {
+    AR4_SAFE_ZONE,        // AR4 can pick/place independently
+    ABB_SAFE_ZONE,        // ABB can pick/place independently
+    HANDOVER_AREA,        // Sequential handover zone
+    COLLISION_RISK_ZONE   // Too close - potential collision
 };
 
 struct ZoneTransition {
@@ -47,6 +58,47 @@ public:
     bool check_collision_risk(
         const geometry_msgs::msg::Pose& ar4_pose,
         const geometry_msgs::msg::Pose& abb_pose);
+    
+    // ========================================================================
+    // OPERATION-SPECIFIC ZONE CHECKING - NEW FOR PARALLEL/SEQUENTIAL CONTROL
+    // ========================================================================
+    
+    /**
+     * @brief Determine operation zone for dual arm coordination
+     * Returns whether arms are in safe zones, handover area, or collision risk
+     */
+    OperationZone get_operation_zone(
+        const geometry_msgs::msg::Pose& ar4_pose,
+        const geometry_msgs::msg::Pose& abb_pose);
+    
+    /**
+     * @brief Check if both arms can safely pick/place in parallel
+     * Returns true if arms are far enough apart to operate independently
+     */
+    bool can_operate_in_parallel(
+        const geometry_msgs::msg::Pose& ar4_pose,
+        const geometry_msgs::msg::Pose& abb_pose);
+    
+    /**
+     * @brief Check if arms are in sequential handover mode
+     * Returns true if at least one arm is in handover zone and both are ready
+     */
+    bool should_use_sequential_handover(
+        const geometry_msgs::msg::Pose& ar4_pose,
+        const geometry_msgs::msg::Pose& abb_pose);
+    
+    /**
+     * @brief Calculate minimum safe separation for parallel operations
+     * @return Required separation distance in meters
+     */
+    double get_required_parallel_separation() const;
+    
+    /**
+     * @brief Determine which control mode should be active based on arm positions
+     */
+    OperationType determine_required_operation_type(
+        const geometry_msgs::msg::Pose& ar4_pose,
+        const geometry_msgs::msg::Pose& abb_pose);
 
     // Zone configuration
     void set_handover_zone_center(const geometry_msgs::msg::Pose& center);
@@ -65,6 +117,7 @@ private:
         double handover_radius_z = 0.2;
         double approach_margin = 0.15;  // Approach zone is 15cm outside handover zone
         double min_arm_separation = 0.1; // Minimum distance between arm TCP points
+        double parallel_safe_separation = 0.3;  // Safe separation for parallel operations
     } zone_config_;
 
     // State tracking

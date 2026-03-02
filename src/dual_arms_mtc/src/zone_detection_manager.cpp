@@ -179,4 +179,135 @@ void ZoneDetectionManager::notify_zone_transition(const ZoneTransition& transiti
     }
 }
 
-}  // namespace dual_arms_mtc
+// ============================================================================
+// OPERATION-SPECIFIC ZONE CHECKING IMPLEMENTATIONS - NEW
+// ============================================================================
+
+OperationZone ZoneDetectionManager::get_operation_zone(
+    const geometry_msgs::msg::Pose& ar4_pose,
+    const geometry_msgs::msg::Pose& abb_pose) {
+    
+    double separation = calculate_distance(ar4_pose, abb_pose);
+    ZoneType ar4_zone = get_zone_type(ar4_pose);
+    ZoneType abb_zone = get_zone_type(abb_pose);
+
+    // Check for collision risk first
+    if (check_collision_risk(ar4_pose, abb_pose)) {
+        RCLCPP_ERROR(get_logger(), "⚠️  COLLISION RISK ZONE");
+        return OperationZone::COLLISION_RISK_ZONE;
+    }
+
+    // Check if any arm is in handover zone
+    bool ar4_in_handover = (ar4_zone == ZoneType::HANDOVER_ZONE || ar4_zone == ZoneType::APPROACH_ZONE);
+    bool abb_in_handover = (abb_zone == ZoneType::HANDOVER_ZONE || abb_zone == ZoneType::APPROACH_ZONE);
+
+    if (ar4_in_handover || abb_in_handover) {
+        RCLCPP_DEBUG(get_logger(), "🔄 HANDOVER_AREA - Separation: %.3f m", separation);
+        return OperationZone::HANDOVER_AREA;
+    }
+
+    // Check if arms are in safe separation for parallel operations
+    if (separation >= zone_config_.parallel_safe_separation) {
+        RCLCPP_DEBUG(get_logger(), "⚡ PARALLEL_OPERATION - Separation: %.3f m", separation);
+        // Determine which arm is in safe zone
+        if (ar4_zone == ZoneType::SAFE_ZONE) {
+            return OperationZone::AR4_SAFE_ZONE;
+        }
+        if (abb_zone == ZoneType::SAFE_ZONE) {
+            return OperationZone::ABB_SAFE_ZONE;
+        }
+    }
+
+    return OperationZone::AR4_SAFE_ZONE;
+}
+
+bool ZoneDetectionManager::can_operate_in_parallel(
+    const geometry_msgs::msg::Pose& ar4_pose,
+    const geometry_msgs::msg::Pose& abb_pose) {
+    
+    double separation = calculate_distance(ar4_pose, abb_pose);
+    ZoneType ar4_zone = get_zone_type(ar4_pose);
+    ZoneType abb_zone = get_zone_type(abb_pose);
+
+    // Both arms must be in safe zones (not approaching handover)
+    if (ar4_zone != ZoneType::SAFE_ZONE || abb_zone != ZoneType::SAFE_ZONE) {
+        RCLCPP_DEBUG(get_logger(), 
+            "Cannot operate in parallel - AR4 zone: %d, ABB zone: %d",
+            (int)ar4_zone, (int)abb_zone);
+        return false;
+    }
+
+    // Separation must exceed safe threshold
+    if (separation < zone_config_.parallel_safe_separation) {
+        RCLCPP_WARN(get_logger(), 
+            "Arms too close for parallel operation. Separation: %.3f m (required: %.3f m)",
+            separation, zone_config_.parallel_safe_separation);
+        return false;
+    }
+
+    // No collision risk
+    if (check_collision_risk(ar4_pose, abb_pose)) {
+        return false;
+    }
+
+    RCLCPP_INFO(get_logger(), "✅ Parallel operation safe - Separation: %.3f m", separation);
+    return true;
+}
+
+bool ZoneDetectionManager::should_use_sequential_handover(
+    const geometry_msgs::msg::Pose& ar4_pose,
+    const geometry_msgs::msg::Pose& abb_pose) {
+    
+    ZoneType ar4_zone = get_zone_type(ar4_pose);
+    ZoneType abb_zone = get_zone_type(abb_pose);
+
+    // At least one arm should be in handover zone
+    bool ar4_in_handover = (ar4_zone == ZoneType::HANDOVER_ZONE || ar4_zone == ZoneType::APPROACH_ZONE);
+    bool abb_in_handover = (abb_zone == ZoneType::HANDOVER_ZONE || abb_zone == ZoneType::APPROACH_ZONE);
+
+    if (!ar4_in_handover && !abb_in_handover) {
+        return false;
+    }
+
+    // Both arms should be ready
+    if (!are_both_arms_ready_for_handover(ar4_pose, abb_pose)) {
+        return false;
+    }
+
+    RCLCPP_INFO(get_logger(), "🔄 Sequential handover condition detected");
+    return true;
+}
+
+double ZoneDetectionManager::get_required_parallel_separation() const {
+    return zone_config_.parallel_safe_separation;
+}
+
+OperationType ZoneDetectionManager::determine_required_operation_type(
+    const geometry_msgs::msg::Pose& ar4_pose,
+    const geometry_msgs::msg::Pose& abb_pose) {
+    
+    if (should_use_sequential_handover(ar4_pose, abb_pose)) {
+        RCLCPP_WARN(get_logger(), "🔄 Should use SEQUENTIAL HANDOVER");
+        return OperationType::HANDOVER;
+    }
+    
+    if (can_operate_in_parallel(ar4_pose, abb_pose)) {
+        RCLCPP_WARN(get_logger(), "⚡ Can use PARALLEL PICK/PLACE");
+        return OperationType::PICK_PLACE;
+    }
+
+    // Default to synchronized movement if neither condition is met
+    RCLCPP_INFO(get_logger(), "Using SYNCHRONIZED movement (neither pure parallel nor handover)");
+    return OperationType::SYNCHRONIZED;
+}
+
+}  
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<dual_arms_mtc::ZoneDetectionManager>();
+  rclcpp::spin(node);
+  rclcpp::shutdown();
+  return 0;
+}// namespace dual_arms_mtc
+

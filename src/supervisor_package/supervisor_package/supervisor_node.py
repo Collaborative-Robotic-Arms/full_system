@@ -5,7 +5,9 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from action_msgs.msg import GoalStatus
-import tf2_geometry_msgs 
+import tf2_geometry_msgs
+import math
+import uuid 
 
 # Custom Interfaces
 from supervisor_package.srv import GetAssemblyPlan
@@ -72,6 +74,28 @@ class AssemblySupervisor(Node):
         self.active_tasks = 0
         self.current_brick = None
         self.current_grasp_point = None
+        
+        # --- NEW: Operation Type Detection & Tracking ---
+        self.declare_parameter('enable_operation_type_detection', True)
+        self.declare_parameter('enable_parallel_execution', True)
+        self.declare_parameter('handover_timeout_ms', 5000)
+        
+        self.enable_operation_type_detection = \
+            self.get_parameter('enable_operation_type_detection').value
+        self.enable_parallel_execution = \
+            self.get_parameter('enable_parallel_execution').value
+        self.handover_timeout = \
+            self.get_parameter('handover_timeout_ms').value
+        
+        # Arm pose tracking for zone decisions
+        self.ar4_current_pose = None
+        self.abb_current_pose = None
+        
+        # Current operation tracking
+        self.current_operation_id = None
+        self.current_operation_type = None
+        self.arm1_completed = False
+        self.arm2_ready = False
 
         self.get_logger().info('Supervisor Initialized with Parallel Mission Support.')
 
@@ -151,6 +175,71 @@ class AssemblySupervisor(Node):
         return Pose().position.__class__(x=target_x, y=target_y, z=target_z)
    
     # -------------------------
+    async def update_arm_poses(self):
+        """
+        Fetch current end-effector poses from TF2.
+        Called at beginning of each state_machine_loop iteration.
+        """
+        try:
+            # Get AR4 TCP pose
+            t_ar4 = self.tf_buffer.lookup_transform(
+                'world',
+                'ar4_tool_link',
+                rclpy.time.Time()
+            )
+            self.ar4_current_pose = t_ar4.transform
+        except Exception as e:
+            self.get_logger().debug(f'Could not get AR4 pose: {e}')
+        
+        try:
+            # Get ABB TCP pose
+            t_abb = self.tf_buffer.lookup_transform(
+                'world',
+                'abb_tool_link',
+                rclpy.time.Time()
+            )
+            self.abb_current_pose = t_abb.transform
+        except Exception as e:
+            self.get_logger().debug(f'Could not get ABB pose: {e}')
+
+    def calculate_separation(self, pose1, pose2):
+        """Calculate distance between two poses"""
+        if not pose1 or not pose2:
+            return float('inf')
+        
+        dx = pose1.translation.x - pose2.translation.x
+        dy = pose1.translation.y - pose2.translation.y
+        dz = pose1.translation.z - pose2.translation.z
+        
+        return math.sqrt(dx**2 + dy**2 + dz**2)
+
+    async def determine_operation_type(self):
+        """
+        Determine operation type based on arm positions.
+        Returns: 'HANDOVER', 'PARALLEL', or 'SEQUENTIAL'
+        """
+        if not self.ar4_current_pose or not self.abb_current_pose:
+            return 'SEQUENTIAL'
+        
+        separation = self.calculate_separation(
+            self.ar4_current_pose,
+            self.abb_current_pose
+        )
+        
+        # If in handover zone (arms close together)
+        if separation < 0.5:
+            self.get_logger().info(f'🔄 Handover zone detected (separation: {separation:.2f}m)')
+            return 'HANDOVER'
+        
+        # If far apart (safe for parallel)
+        if separation > 0.8:
+            self.get_logger().info(f'⚡ Parallel safe zone (separation: {separation:.2f}m)')
+            return 'PARALLEL'
+        
+        # Otherwise synchronized
+        self.get_logger().info(f'📦 Synchronized zone (separation: {separation:.2f}m)')
+        return 'SEQUENTIAL'
+
     # =========================
     # PARALLEL WORKER MISSIONS
     # =========================
@@ -290,6 +379,10 @@ class AssemblySupervisor(Node):
     async def state_machine_loop(self):
         while rclpy.ok():
             try:
+                # NEW: Update arm poses for zone detection
+                if self.enable_operation_type_detection:
+                    await self.update_arm_poses()
+                
                 # =========================
                 # STATE 1: INIT → DETECTION
                 # =========================
@@ -340,9 +433,26 @@ class AssemblySupervisor(Node):
                 elif self.state == "DISPATCH":
                     if not self.assembly_queue and self.active_tasks == 0:
                         self.get_logger().info('--- ALL TASKS COMPLETE ---')
-                        break # Or reset to INIT if you want to loop forever
+                        break
 
-                    # --- 1. Attempt to Dispatch ABB ---
+                    # NEW: Determine operation type
+                    if self.enable_operation_type_detection and \
+                       self.ar4_current_pose and self.abb_current_pose:
+                        operation_type = await self.determine_operation_type()
+                        self.current_operation_type = operation_type
+                        
+                        if operation_type == 'HANDOVER':
+                            self.get_logger().info('🔄 SEQUENTIAL HANDOVER DETECTED')
+                            self.state = "SEQUENTIAL_HANDOVER"
+                            continue
+                        elif operation_type == 'PARALLEL' and self.enable_parallel_execution:
+                            # Check if we have bricks for both arms
+                            if len(self.assembly_queue) >= 2:
+                                self.get_logger().info('⚡ PARALLEL EXECUTION POSSIBLE')
+                                self.state = "PARALLEL_EXECUTION"
+                                continue
+                    
+                    # Default: dispatch as before
                     if not self.abb_busy:
                         for brick in list(self.assembly_queue):
                             if brick.start_side == "ABB":
@@ -350,9 +460,8 @@ class AssemblySupervisor(Node):
                                 self.assembly_queue.remove(brick)
                                 asyncio.create_task(self.run_abb_mission(brick))
                                 self.get_logger().info(f"Dispatched ABB for Brick {brick.id}")
-                                break # Stop looking for ABB tasks, move to AR4 check
+                                break
 
-                    # --- 2. Attempt to Dispatch AR4 ---
                     if not self.ar4_busy:
                         for brick in list(self.assembly_queue):
                             if brick.start_side == "AR4":
@@ -360,7 +469,139 @@ class AssemblySupervisor(Node):
                                 self.assembly_queue.remove(brick)
                                 asyncio.create_task(self.run_ar4_mission(brick))
                                 self.get_logger().info(f"Dispatched AR4 for Brick {brick.id}")
-                                break # Stop looking for AR4 tasks
+                                break
+                
+                # NEW: Sequential Handover State
+                elif self.state == "SEQUENTIAL_HANDOVER":
+                    self.get_logger().info('🔄 SEQUENTIAL HANDOVER: AR4 picks → intermediate')
+                    
+                    # For now, dispatch to traditional handover flow
+                    # In future, would call MTC controller
+                    if not self.ar4_busy:
+                        for brick in list(self.assembly_queue):
+                            if brick.start_side == "AR4":
+                                self.ar4_busy = True
+                                self.assembly_queue.remove(brick)
+                                self.current_brick = brick
+                                
+                                # Get grasp first
+                                grasp_req = GetGrasp.Request()
+                                grasp_req.brick_index = str(brick.id)
+                                grasp_res = await self.grasp_pipeline_client.call_async(grasp_req)
+                                
+                                if grasp_res and grasp_res.success:
+                                    grasp_pose = self.transform_pose_to_abb(grasp_res.grasp_point.pose)
+                                    grasp_pose.position.z = 0.14
+                                    self.current_grasp_point = grasp_pose
+                                    
+                                    # AR4 picks
+                                    asyncio.create_task(self.run_ar4_mission(brick))
+                                    self.arm1_completed = True
+                                    self.state = "HANDOVER_ABB_PICK"
+                                break
+                    else:
+                        await asyncio.sleep(0.5)
+                
+                # NEW: Handover - ABB picks
+                elif self.state == "HANDOVER_ABB_PICK":
+                    if self.arm1_completed and not self.abb_busy:
+                        self.get_logger().info('🔄 SEQUENTIAL HANDOVER: ABB picks from intermediate')
+                        
+                        if not self.assembly_queue and self.current_brick:
+                            self.abb_busy = True
+                            brick = self.current_brick
+                            
+                            # ABB picks from intermediate
+                            abb_pick_goal = ExecuteTask.Goal()
+                            abb_pick_goal.task_type = "PICK_FROM_HANDOVER"
+                            abb_pick_goal.target_pose = self.current_grasp_point
+                            
+                            if await self.send_action_goal(self.abb_task_client, abb_pick_goal):
+                                await asyncio.sleep(2.0)
+                                
+                                # ABB places
+                                place_goal = ExecuteTask.Goal()
+                                place_goal.task_type = "PLACE"
+                                place_goal.target_pose = brick.place_pose
+                                place_goal.target_pose.position.z = 0.23
+                                
+                                await self.send_action_goal(self.abb_task_client, place_goal)
+                                self.get_logger().info('✅ Handover complete')
+                            
+                            self.abb_busy = False
+                            self.arm1_completed = False
+                            self.current_brick = None
+                            self.state = "DISPATCH"
+                    else:
+                        await asyncio.sleep(0.5)
+                
+                # NEW: Parallel Execution State
+                elif self.state == "PARALLEL_EXECUTION":
+                    if len(self.assembly_queue) >= 2:
+                        self.get_logger().info('⚡ PARALLEL EXECUTION: Both arms executing simultaneously')
+                        
+                        # Get first two bricks
+                        ar4_brick = None
+                        abb_brick = None
+                        
+                        for brick in list(self.assembly_queue):
+                            if not ar4_brick and brick.start_side == "AR4":
+                                ar4_brick = brick
+                                self.assembly_queue.remove(brick)
+                            elif not abb_brick and brick.start_side == "ABB":
+                                abb_brick = brick
+                                self.assembly_queue.remove(brick)
+                        
+                        # If we have both, dispatch simultaneously
+                        if ar4_brick and abb_brick:
+                            self.ar4_busy = True
+                            self.abb_busy = True
+                            
+                            asyncio.create_task(self.run_ar4_mission(ar4_brick))
+                            asyncio.create_task(self.run_abb_mission(abb_brick))
+                            
+                            self.state = "DISPATCH"
+                        else:
+                            # Not enough compatible bricks, go back to dispatch
+                            self.state = "DISPATCH"
+                    else:
+                        self.state = "DISPATCH"
+                
+                # NEW: Parallel Pick & Place State
+                elif self.state == "PARALLEL_PICK_PLACE":
+                    self.get_logger().info(f'⚡ Starting Parallel Pick for {self.current_brick.id}')
+                    
+                    if not self.ar4_busy and not self.abb_busy and self.current_brick:
+                        self.ar4_busy = True
+                        self.abb_busy = True
+                        
+                        brick = self.current_brick
+                        
+                        # Create concurrent pick tasks
+                        async def parallel_pick():
+                            ar4_pick_goal = MoveToPose.Goal()
+                            ar4_pick_goal.strategy = "PICK"
+                            ar4_pick_goal.target_pose = brick.pickup_pose
+                            
+                            abb_pick_goal = ExecuteTask.Goal()
+                            abb_pick_goal.task_type = "PICK"
+                            if self.current_grasp_point:
+                                abb_pick_goal.target_pose = self.current_grasp_point.pose
+                            else:
+                                abb_pick_goal.target_pose = brick.pickup_pose
+                            
+                            # Run both picks concurrently
+                            ar4_result, abb_result = await asyncio.gather(
+                                self.send_action_goal(self.ar4_point_client, ar4_pick_goal),
+                                self.send_action_goal(self.abb_task_client, abb_pick_goal),
+                                return_exceptions=True
+                            )
+                            return ar4_result, abb_result
+                        
+                        # Dispatch parallel picks
+                        asyncio.create_task(self._handle_parallel_picks(brick, parallel_pick()))
+                    else:
+                        await asyncio.sleep(0.5)
 
             except Exception as e:
                 self.get_logger().error(f"Dispatcher Error: {e}")
@@ -405,6 +646,65 @@ class AssemblySupervisor(Node):
             self.current_grasp_point = raw_grasp
             return True
         return False
+
+    async def _handle_parallel_picks(self, brick, picks_coro):
+        """Handle parallel pick execution for both arms."""
+        try:
+            ar4_result, abb_result = await picks_coro
+            
+            # Check results
+            if isinstance(ar4_result, Exception) or ar4_result is None:
+                self.get_logger().error(f"AR4 parallel pick failed")
+                self.ar4_busy = False
+                self.abb_busy = False
+                self.state = "DISPATCH"
+                return
+            
+            if isinstance(abb_result, Exception) or abb_result is None:
+                self.get_logger().error(f"ABB parallel pick failed")
+                self.ar4_busy = False
+                self.abb_busy = False
+                self.state = "DISPATCH"
+                return
+            
+            # Both picks succeeded - proceed to parallel place
+            self.get_logger().info('✅ Parallel picks complete - proceeding to parallel place')
+            await asyncio.sleep(0.5)
+            
+            # Create concurrent place tasks
+            ar4_place_goal = MoveToPose.Goal()
+            ar4_place_goal.strategy = "PLACE"
+            ar4_place_goal.target_pose = brick.place_pose
+            
+            abb_place_goal = ExecuteTask.Goal()
+            abb_place_goal.task_type = "PLACE"
+            abb_place_goal.target_pose = brick.place_pose
+            abb_place_goal.target_pose.pose.position.z = 0.24
+            
+            # Run both places concurrently
+            ar4_place_result, abb_place_result = await asyncio.gather(
+                self.send_action_goal(self.ar4_point_client, ar4_place_goal),
+                self.send_action_goal(self.abb_task_client, abb_place_goal),
+                return_exceptions=True
+            )
+            
+            # Check place results
+            if isinstance(ar4_place_result, Exception) or ar4_place_result is None:
+                self.get_logger().error(f"AR4 parallel place failed")
+            elif isinstance(abb_place_result, Exception) or abb_place_result is None:
+                self.get_logger().error(f"ABB parallel place failed")
+            else:
+                self.get_logger().info('✅ Parallel Pick & Place complete')
+            
+            self.ar4_busy = False
+            self.abb_busy = False
+            self.state = "DISPATCH"
+            
+        except Exception as e:
+            self.get_logger().error(f"Parallel pick handler failed: {e}")
+            self.ar4_busy = False
+            self.abb_busy = False
+            self.state = "DISPATCH"
 
     async def send_action_goal(self, client, goal_msg):
         """Action helper that awaits the physical movement result."""

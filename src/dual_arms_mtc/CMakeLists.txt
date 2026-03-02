@@ -64,7 +64,11 @@ ament_target_dependencies(zone_detection_manager
   tf2
   tf2_ros
   dual_arms_msgs
+  moveit_core
+  moveit_ros_planning
+  moveit_task_constructor_core
 )
+
 
 # ================================================================
 # Installation
