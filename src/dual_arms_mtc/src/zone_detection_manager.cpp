@@ -1,4 +1,5 @@
 #include <dual_arms_mtc/zone_detection_manager.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <cmath>
 
 namespace dual_arms_mtc {
@@ -9,6 +10,10 @@ ZoneDetectionManager::ZoneDetectionManager()
       abb_current_zone_(ZoneType::SAFE_ZONE) {
     
     RCLCPP_INFO(get_logger(), "Initializing Zone Detection Manager");
+
+    // Initialize TF2 Listener to "see" the simulation
+    tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
     // Load zone configuration from parameters
     declare_parameter("handover_zone.center.x", 0.5);
@@ -38,9 +43,8 @@ ZoneDetectionManager::ZoneDetectionManager()
         [this]() { on_diagnostic_timer(); });
 
     RCLCPP_INFO(get_logger(), 
-        "Zone Detection Manager initialized. Handover zone at (%.2f, %.2f, %.2f) with radius (%.2f, %.2f, %.2f)",
-        zone_config_.center.position.x, zone_config_.center.position.y, zone_config_.center.position.z,
-        zone_config_.handover_radius_x, zone_config_.handover_radius_y, zone_config_.handover_radius_z);
+        "Zone Detection Manager initialized. Handover zone at (%.2f, %.2f, %.2f)",
+        zone_config_.center.position.x, zone_config_.center.position.y, zone_config_.center.position.z);
 }
 
 ZoneType ZoneDetectionManager::get_zone_type(const geometry_msgs::msg::Pose& pose) {
@@ -86,7 +90,6 @@ bool ZoneDetectionManager::are_both_arms_ready_for_handover(
     const geometry_msgs::msg::Pose& ar4_pose,
     const geometry_msgs::msg::Pose& abb_pose) {
     
-    // Both arms must be in or very close to handover zone
     ZoneType ar4_zone = get_zone_type(ar4_pose);
     ZoneType abb_zone = get_zone_type(abb_pose);
 
@@ -95,14 +98,12 @@ bool ZoneDetectionManager::are_both_arms_ready_for_handover(
         return false;
     }
 
-    // Check minimum separation between grippers
     double separation = calculate_distance(ar4_pose, abb_pose);
     if (separation < zone_config_.min_arm_separation) {
         RCLCPP_WARN(get_logger(), "Arms too close! Separation: %.3f m (min: %.3f m)",
             separation, zone_config_.min_arm_separation);
         return false;
     }
-
     return true;
 }
 
@@ -117,7 +118,6 @@ bool ZoneDetectionManager::check_collision_risk(
         RCLCPP_ERROR(get_logger(), "COLLISION RISK! Separation: %.3f m", separation);
         return true;
     }
-
     return false;
 }
 
@@ -131,13 +131,10 @@ void ZoneDetectionManager::set_handover_zone_radius(double radius_x, double radi
     zone_config_.handover_radius_x = radius_x;
     zone_config_.handover_radius_y = radius_y;
     zone_config_.handover_radius_z = radius_z;
-    RCLCPP_INFO(get_logger(), "Handover zone radius updated to (%.2f, %.2f, %.2f)",
-        radius_x, radius_y, radius_z);
 }
 
 void ZoneDetectionManager::set_approach_zone_margin(double margin) {
     zone_config_.approach_margin = margin;
-    RCLCPP_INFO(get_logger(), "Approach zone margin set to %.2f m", margin);
 }
 
 void ZoneDetectionManager::register_zone_transition_callback(ZoneTransitionCallback callback) {
@@ -161,6 +158,29 @@ void ZoneDetectionManager::publish_zone_status(const std::string& status) {
 }
 
 void ZoneDetectionManager::on_diagnostic_timer() {
+    // 1. Fetch live poses from the simulation
+    try {
+        // AR4 live tracking
+        auto t_ar4 = tf_buffer_->lookupTransform("world", "ar4_ee_link", tf2::TimePointZero);
+        geometry_msgs::msg::Pose ar4_pose;
+        ar4_pose.position.x = t_ar4.transform.translation.x;
+        ar4_pose.position.y = t_ar4.transform.translation.y;
+        ar4_pose.position.z = t_ar4.transform.translation.z;
+        ar4_current_zone_.store(get_zone_type(ar4_pose));
+
+        // ABB live tracking
+        auto t_abb = tf_buffer_->lookupTransform("world", "tool0", tf2::TimePointZero);
+        geometry_msgs::msg::Pose abb_pose;
+        abb_pose.position.x = t_abb.transform.translation.x;
+        abb_pose.position.y = t_abb.transform.translation.y;
+        abb_pose.position.z = t_abb.transform.translation.z;
+        abb_current_zone_.store(get_zone_type(abb_pose));
+
+    } catch (const tf2::TransformException & ex) {
+        // Silently fail if simulation isn't running yet to avoid log spam
+    }
+
+    // 2. Convert Zone ENUMS to string
     ZoneType ar4_zone = ar4_current_zone_.load();
     ZoneType abb_zone = abb_current_zone_.load();
 
@@ -169,7 +189,7 @@ void ZoneDetectionManager::on_diagnostic_timer() {
     std::string abb_zone_str = (abb_zone == ZoneType::SAFE_ZONE) ? "SAFE" :
                                (abb_zone == ZoneType::APPROACH_ZONE) ? "APPROACH" : "HANDOVER";
 
-    // Publish status about both arms
+    // 3. Publish the live status
     publish_zone_status("AR4: " + ar4_zone_str + " | ABB: " + abb_zone_str);
 }
 
@@ -179,10 +199,6 @@ void ZoneDetectionManager::notify_zone_transition(const ZoneTransition& transiti
     }
 }
 
-// ============================================================================
-// OPERATION-SPECIFIC ZONE CHECKING IMPLEMENTATIONS - NEW
-// ============================================================================
-
 OperationZone ZoneDetectionManager::get_operation_zone(
     const geometry_msgs::msg::Pose& ar4_pose,
     const geometry_msgs::msg::Pose& abb_pose) {
@@ -191,31 +207,21 @@ OperationZone ZoneDetectionManager::get_operation_zone(
     ZoneType ar4_zone = get_zone_type(ar4_pose);
     ZoneType abb_zone = get_zone_type(abb_pose);
 
-    // Check for collision risk first
     if (check_collision_risk(ar4_pose, abb_pose)) {
         RCLCPP_ERROR(get_logger(), "⚠️  COLLISION RISK ZONE");
         return OperationZone::COLLISION_RISK_ZONE;
     }
 
-    // Check if any arm is in handover zone
     bool ar4_in_handover = (ar4_zone == ZoneType::HANDOVER_ZONE || ar4_zone == ZoneType::APPROACH_ZONE);
     bool abb_in_handover = (abb_zone == ZoneType::HANDOVER_ZONE || abb_zone == ZoneType::APPROACH_ZONE);
 
     if (ar4_in_handover || abb_in_handover) {
-        RCLCPP_DEBUG(get_logger(), "🔄 HANDOVER_AREA - Separation: %.3f m", separation);
         return OperationZone::HANDOVER_AREA;
     }
 
-    // Check if arms are in safe separation for parallel operations
     if (separation >= zone_config_.parallel_safe_separation) {
-        RCLCPP_DEBUG(get_logger(), "⚡ PARALLEL_OPERATION - Separation: %.3f m", separation);
-        // Determine which arm is in safe zone
-        if (ar4_zone == ZoneType::SAFE_ZONE) {
-            return OperationZone::AR4_SAFE_ZONE;
-        }
-        if (abb_zone == ZoneType::SAFE_ZONE) {
-            return OperationZone::ABB_SAFE_ZONE;
-        }
+        if (ar4_zone == ZoneType::SAFE_ZONE) return OperationZone::AR4_SAFE_ZONE;
+        if (abb_zone == ZoneType::SAFE_ZONE) return OperationZone::ABB_SAFE_ZONE;
     }
 
     return OperationZone::AR4_SAFE_ZONE;
@@ -229,28 +235,10 @@ bool ZoneDetectionManager::can_operate_in_parallel(
     ZoneType ar4_zone = get_zone_type(ar4_pose);
     ZoneType abb_zone = get_zone_type(abb_pose);
 
-    // Both arms must be in safe zones (not approaching handover)
-    if (ar4_zone != ZoneType::SAFE_ZONE || abb_zone != ZoneType::SAFE_ZONE) {
-        RCLCPP_DEBUG(get_logger(), 
-            "Cannot operate in parallel - AR4 zone: %d, ABB zone: %d",
-            (int)ar4_zone, (int)abb_zone);
-        return false;
-    }
+    if (ar4_zone != ZoneType::SAFE_ZONE || abb_zone != ZoneType::SAFE_ZONE) return false;
+    if (separation < zone_config_.parallel_safe_separation) return false;
+    if (check_collision_risk(ar4_pose, abb_pose)) return false;
 
-    // Separation must exceed safe threshold
-    if (separation < zone_config_.parallel_safe_separation) {
-        RCLCPP_WARN(get_logger(), 
-            "Arms too close for parallel operation. Separation: %.3f m (required: %.3f m)",
-            separation, zone_config_.parallel_safe_separation);
-        return false;
-    }
-
-    // No collision risk
-    if (check_collision_risk(ar4_pose, abb_pose)) {
-        return false;
-    }
-
-    RCLCPP_INFO(get_logger(), "✅ Parallel operation safe - Separation: %.3f m", separation);
     return true;
 }
 
@@ -261,20 +249,12 @@ bool ZoneDetectionManager::should_use_sequential_handover(
     ZoneType ar4_zone = get_zone_type(ar4_pose);
     ZoneType abb_zone = get_zone_type(abb_pose);
 
-    // At least one arm should be in handover zone
     bool ar4_in_handover = (ar4_zone == ZoneType::HANDOVER_ZONE || ar4_zone == ZoneType::APPROACH_ZONE);
     bool abb_in_handover = (abb_zone == ZoneType::HANDOVER_ZONE || abb_zone == ZoneType::APPROACH_ZONE);
 
-    if (!ar4_in_handover && !abb_in_handover) {
-        return false;
-    }
+    if (!ar4_in_handover && !abb_in_handover) return false;
+    if (!are_both_arms_ready_for_handover(ar4_pose, abb_pose)) return false;
 
-    // Both arms should be ready
-    if (!are_both_arms_ready_for_handover(ar4_pose, abb_pose)) {
-        return false;
-    }
-
-    RCLCPP_INFO(get_logger(), "🔄 Sequential handover condition detected");
     return true;
 }
 
@@ -287,21 +267,19 @@ OperationType ZoneDetectionManager::determine_required_operation_type(
     const geometry_msgs::msg::Pose& abb_pose) {
     
     if (should_use_sequential_handover(ar4_pose, abb_pose)) {
-        RCLCPP_WARN(get_logger(), "🔄 Should use SEQUENTIAL HANDOVER");
         return OperationType::HANDOVER;
     }
     
     if (can_operate_in_parallel(ar4_pose, abb_pose)) {
-        RCLCPP_WARN(get_logger(), "⚡ Can use PARALLEL PICK/PLACE");
         return OperationType::PICK_PLACE;
     }
 
-    // Default to synchronized movement if neither condition is met
-    RCLCPP_INFO(get_logger(), "Using SYNCHRONIZED movement (neither pure parallel nor handover)");
     return OperationType::SYNCHRONIZED;
 }
 
-}  
+}  // namespace dual_arms_mtc
+
+// Cleanly placed main function outside the namespace
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
@@ -309,5 +287,4 @@ int main(int argc, char ** argv)
   rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;
-}// namespace dual_arms_mtc
-
+}

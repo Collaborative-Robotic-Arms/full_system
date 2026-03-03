@@ -58,17 +58,17 @@ def generate_launch_description():
         # HYBRID SUPERVISOR (Python node)
         # ================================================================
         
-        Node(
-            package='supervisor_package',
-            executable='hybrid_supervisor_node',
-            name='hybrid_supervisor',
-            output='screen',
-            parameters=[
-                {'use_sim': True},
-                {'enable_mtc_mode': True},
-                {'handover_trigger_distance': 0.30},
-            ]
-        ),
+        # Node(
+        #     package='supervisor_package',
+        #     executable='hybrid_supervisor_node',
+        #     name='hybrid_supervisor',
+        #     output='screen',
+        #     parameters=[
+        #         {'use_sim': True},
+        #         {'enable_mtc_mode': True},
+        #         {'handover_trigger_distance': 0.30},
+        #     ]
+        # ),
         
         # ================================================================
         # OPTIONAL: MoveIt Motion Planning Framework

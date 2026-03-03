@@ -9,12 +9,11 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
-# 2. Generate the Actions (.action files)
-# This automatically handles the Python and C++ bindings
 
+# 2. Generate the Actions and Services
 rosidl_generate_interfaces(${PROJECT_NAME}
-"msg/SuperBrick.msg"  
-"action/MoveToPose.action"
+  "msg/SuperBrick.msg"  
+  "action/MoveToPose.action"
   "action/AlignToTarget.action"
   "action/ExecuteTask.action"
   "srv/GetAssemblyPlan.srv"   
@@ -22,14 +21,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES geometry_msgs
 )
 
+# 3. Installation logic
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
-install(DIRECTORY
-  launch
-  DESTINATION share/${PROJECT_NAME}
-)
-
-
-# Install the main supervisor
+# Install Python nodes
 install(PROGRAMS
   supervisor_package/supervisor.py
   DESTINATION lib/${PROJECT_NAME}
@@ -43,29 +38,27 @@ install(PROGRAMS
 install(PROGRAMS
   supervisor_package/ar4_controller_node.py
   DESTINATION lib/${PROJECT_NAME}
-  RENAME ar4_controller_node
-)
+  RENAME ar4_controller_node)
 
 install(PROGRAMS
   supervisor_package/abb_controller_node.py
   DESTINATION lib/${PROJECT_NAME}
-  RENAME abb_controller_node
-)
+  RENAME abb_controller_node)
 
-# Install the mock system
 install(PROGRAMS
   supervisor_package/mock_system.py
   DESTINATION lib/${PROJECT_NAME}
-  RENAME mock_system
-)
+  RENAME mock_system)
 
 install(PROGRAMS
   supervisor_package/mock_ar4.py
   DESTINATION lib/${PROJECT_NAME}
-  RENAME mock_ar4
-)
+  RENAME mock_ar4)
 
-# 4. Export and Package
+# 4. Export and Package (CRITICAL FIXES HERE)
 ament_export_dependencies(rosidl_default_runtime)
-ament_export_dependencies(tf2_ros tf2_geometry_msgs)
+ament_export_dependencies(tf2_ros tf2_geometry_msgs geometry_msgs) # Added geometry_msgs
+
+# This allows point_control_pkg to find the C++ headers
+ament_export_targets(${PROJECT_NAME}__rosidl_typesupport_cpp)
 ament_package()

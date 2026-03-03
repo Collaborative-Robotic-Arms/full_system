@@ -12,13 +12,17 @@ HybridMTCController::HybridMTCController()
       task_failed_(false),
       task_status_("IDLE") {
     
+    RCLCPP_INFO(get_logger(), "Hybrid MTC Controller Node Created. Waiting for initialization...");
+}
+
+void HybridMTCController::init() {
     RCLCPP_INFO(get_logger(), "Initializing Hybrid MTC Controller...");
 
     // Initialize TF2
     tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-    // Initialize solvers
+    // Initialize solvers (shared_from_this() is now safe to use here!)
     initialize_solvers();
 
     // Load handover zone configuration
@@ -696,9 +700,13 @@ void HybridMTCController::on_task_failed(const std::string& reason) {
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     
+    // 1. Create the node (constructor runs safely)
     auto controller = std::make_shared<dual_arms_mtc::HybridMTCController>();
     
-    // Use MultiThreadedExecutor to handle concurrent callbacks
+    // 2. Initialize the components (shared_from_this() now works)
+    controller->init();
+    
+    // 3. Spin the node
     rclcpp::executors::MultiThreadedExecutor executor;
     executor.add_node(controller);
     executor.spin();

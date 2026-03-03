@@ -7,12 +7,11 @@ from geometry_msgs.msg import Pose, Point
 
 # Import the specific messages the SERVICES expect
 from supervisor_package.srv import GetAssemblyPlan
-from supervisor_package.msg import SuperBrick  # <-- This is the one that was crashing
+from supervisor_package.msg import SuperBrick  
 
 # Import these for the other services
 from dual_arms_msgs.srv import GetGrasp, DetectBricks
 from dual_arms_msgs.msg import Brick, GraspPoint
-
 
 def euler_to_quaternion(roll, pitch, yaw):
     """
@@ -54,9 +53,7 @@ class MockRobotSystem(Node):
         self.detect_srv = self.create_service(DetectBricks, 'detect_bricks', self.detect_bricks_callback)
         self.grasp_srv = self.create_service(GetGrasp, 'grasp/get_grasp_point', self.get_grasp_callback)
 
-
         self.get_logger().info('Mock System Ready. Testing AR4 sequence...')
-
 
     def get_plan_callback(self, request, response):
             self.get_logger().info('Mock: Sending Assembly Plan...')
@@ -65,11 +62,10 @@ class MockRobotSystem(Node):
             
             brick = SuperBrick()
             brick.id = 1
-            brick.type = "I_BRICK"      # Must be a string based on your .msg
-            brick.start_side = "AR4"    # Must be a string based on your .msg
-            brick.target_side = "GRID"  # Must be a string based on your .msg
+            brick.type = "I_BRICK"      
+            brick.start_side = "AR4"    
+            brick.target_side = "GRID"  
             
-            # Initialize the poses so they aren't null
             brick.pickup_pose = Pose()
             brick.pickup_pose.position.x = 0.5
             brick.pickup_pose.orientation.w = 1.0
@@ -87,11 +83,10 @@ class MockRobotSystem(Node):
 
             brick2 = SuperBrick()
             brick2.id = 2
-            brick2.type = "T_BRICK"      # Must be a string based on your .msg
-            brick2.start_side = "ABB"    # Must be a string based on your .msg
-            brick2.target_side = "GRID"  # Must be a string based on your .msg
+            brick2.type = "T_BRICK"      
+            brick2.start_side = "ABB"    
+            brick2.target_side = "GRID"  
             
-            # Initialize the poses so they aren't null
             brick2.pickup_pose = Pose()
             brick2.pickup_pose.position.x = 0.5
             brick2.pickup_pose.orientation.y = 1.0
@@ -109,11 +104,10 @@ class MockRobotSystem(Node):
             
             brick3 = SuperBrick()
             brick3.id = 3
-            brick3.type = "T_BRICK"      # Must be a string based on your .msg
-            brick3.start_side = "AR4"    # Must be a string based on your .msg
-            brick3.target_side = "GRID"  # Must be a string based on your .msg
+            brick3.type = "T_BRICK"      
+            brick3.start_side = "AR4"    
+            brick3.target_side = "GRID"  
             
-            # Initialize the poses so they aren't null
             brick3.pickup_pose = Pose()
             brick3.pickup_pose.position.x = 0.5
             brick3.pickup_pose.orientation.y = 1.0
@@ -131,11 +125,10 @@ class MockRobotSystem(Node):
             
             brick4 = SuperBrick()
             brick4.id = 4
-            brick4.type = "I_BRICK"      # Must be a string based on your .msg
-            brick4.start_side = "ABB"    # Must be a string based on your .msg
-            brick4.target_side = "GRID"  # Must be a string based on your .msg
+            brick4.type = "I_BRICK"      
+            brick4.start_side = "ABB"    
+            brick4.target_side = "GRID"  
         
-            # Initialize the poses so they aren't null
             brick4.pickup_pose = Pose()
             brick4.pickup_pose.position.x = 0.5
             brick4.pickup_pose.orientation.y = 1.0
@@ -167,29 +160,31 @@ class MockRobotSystem(Node):
             # --- Brick 2 ---
             brick2 = Brick()
             brick2.id = 2
-            # Giving it a slightly different position so they aren't on top of each other
             brick2.pose.position.x = 0.4 
             brick2.pose.position.z = 0.22
             brick2.pose.orientation.w = 1.0
             
+            # --- Brick 3 ---
             brick3 = Brick()
             brick3.id = 3
-            # Giving it a slightly different position so they aren't on top of each other
             brick3.pose.position.x = 0.5 
             brick3.pose.position.z = 0.14
             brick3.pose.orientation.w = 1.0
 
+            # --- Brick 4 ---
             brick4 = Brick()
             brick4.id = 4
-            # Giving it a slightly different position so they aren't on top of each other
             brick4.pose.position.x = 0.4 
             brick4.pose.position.z = 0.22
             brick4.pose.orientation.w = 1.0
             
             response.bricks = [brick1, brick2, brick3, brick4]
             
-            # Handover pose (default)
+            # --- CRITICAL FIX: Safe Handover Pose ---
             response.handover_pose = Pose()
+            response.handover_pose.position.x = 0.40  # 40cm in front of the ABB base
+            response.handover_pose.position.y = 0.00
+            response.handover_pose.position.z = 0.30  # 30cm above the table to avoid collisions
             response.handover_pose.orientation.w = 1.0
             
             return response
@@ -200,7 +195,6 @@ class MockRobotSystem(Node):
             response.success = True
             gp = GraspPoint()
 
-            # Logic to return different points based on the ID requested
             if request.brick_index == "1":
                 self.get_logger().info("Mock: Providing Grasp Point for Brick 1")
                 gp.pose.position = Point(x=0.0, y=0.0, z=0.14)
@@ -212,7 +206,6 @@ class MockRobotSystem(Node):
             elif request.brick_index == "2":
                 self.get_logger().info("Mock: Providing Grasp Point for Brick 2")
                 gp.pose.position = Point(x=0.0, y=-0.3, z=0.22)
-                # Using your manual orientation for ABB/Brick 2
                 gp.pose.orientation.x = 0.0
                 gp.pose.orientation.y = 0.0
                 gp.pose.orientation.z = 1.0
@@ -229,7 +222,6 @@ class MockRobotSystem(Node):
             elif request.brick_index == "4":
                 self.get_logger().info("Mock: Providing Grasp Point for Brick 4")
                 gp.pose.position = Point(x=0.1, y=-0.25, z=0.22)
-                # Using your manual orientation for ABB/Brick 2
                 gp.pose.orientation.x = 0.0
                 gp.pose.orientation.y = 0.0
                 gp.pose.orientation.z = 1.0

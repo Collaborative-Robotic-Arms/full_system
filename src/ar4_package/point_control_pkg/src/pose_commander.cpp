@@ -1,132 +1,103 @@
-#include <csignal>
-#include <iostream>
-#include <limits>
 #include <memory>
-
-#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <string>
+#include <thread>
 #include <rclcpp/rclcpp.hpp>
-
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <rclcpp_action/rclcpp_action.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
-
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <moveit/move_group_interface/move_group_interface.hpp>
+#include <supervisor_package/action/move_to_pose.hpp>
 
-using moveit::planning_interface::MoveGroupInterface;
-using namespace std::chrono_literals;
+namespace point_control {
+class PoseCommanderAction : public rclcpp::Node {
+public:
+  using MoveToPose = supervisor_package::action::MoveToPose;
+  using GoalHandleMoveToPose = rclcpp_action::ServerGoalHandle<MoveToPose>;
 
-std::atomic<bool> running(true);
-
-void signalHandler(int) { running = false; }
-
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
-
-int main(int argc, char *argv[]) {
-  rclcpp::init(argc, argv);
-  std::signal(SIGINT, signalHandler);
-
-  auto node = std::make_shared<rclcpp::Node>("ar4_pose_commander");
-  auto logger = node->get_logger();
-
-  tf2_ros::Buffer tf_buffer(node->get_clock());
-  tf2_ros::TransformListener tf_listener(tf_buffer);
-
-  MoveGroupInterface move_group(node, "ar_manipulator");
-
-  move_group.setPlanningPipelineId("ompl");
-  move_group.setPlannerId("RRTConnectkConfigDefault");
-  move_group.setMaxVelocityScalingFactor(0.7);
-  move_group.setMaxAccelerationScalingFactor(0.3);
-  move_group.setGoalPositionTolerance(0.001);
-  move_group.setGoalOrientationTolerance(0.01);
-  move_group.setGoalJointTolerance(0.001);
-
-  const std::string ee_link = move_group.getEndEffectorLink();
-  const std::string planning_frame = move_group.getPlanningFrame();
-
-  RCLCPP_INFO(logger, "Planning frame: %s", planning_frame.c_str());
-  RCLCPP_INFO(logger, "End effector link: %s", ee_link.c_str());
-
-  char option = 0;
-
-  while (rclcpp::ok() && running) {
-    rclcpp::spin_some(node);
-
-    std::cout << "\nHome (H), Pose (P), Quit (Q): ";
-    std::cin >> option;
-
-    if (option == 'Q' || option == 'q')
-      break;
-
-    /* ---------------- HOME ---------------- */
-    if (option == 'H' || option == 'h') {
-      move_group.setNamedTarget("home");
-      move_group.setStartStateToCurrentState();
-
-      MoveGroupInterface::Plan plan;
-      if (move_group.plan(plan)) {
-        move_group.execute(plan);
-        move_group.stop();
-        move_group.clearPoseTargets();
-        RCLCPP_INFO(logger, "Moved to HOME");
-      } else {
-        RCLCPP_ERROR(logger, "Failed to plan HOME");
-      }
-    }
-
-    /* ---------------- POSE ---------------- */
-    if (option == 'P' || option == 'p') {
-      double x, y, z, roll_deg, pitch_deg, yaw_deg;
-
-      std::cout << "\nEnter target pose (x y z roll pitch yaw in degrees): ";
-      if (!(std::cin >> x >> y >> z >> roll_deg >> pitch_deg >> yaw_deg)) {
-        std::cin.clear();
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        RCLCPP_ERROR(logger, "Invalid input");
-        continue;
-      }
-
-      tf2::Quaternion q;
-      q.setRPY(roll_deg * M_PI / 180.0, pitch_deg * M_PI / 180.0,
-               yaw_deg * M_PI / 180.0);
-      q.normalize();
-
-      geometry_msgs::msg::PoseStamped ee_pose_dummy;
-      ee_pose_dummy.header.frame_id = "ABB_base_link";
-      ee_pose_dummy.header.stamp = node->now();
-      ee_pose_dummy.pose.position.x = x;
-      ee_pose_dummy.pose.position.y = y;
-      ee_pose_dummy.pose.position.z = z;
-      ee_pose_dummy.pose.orientation = tf2::toMsg(q);
-
-      geometry_msgs::msg::PoseStamped ee_pose_base;
-      try {
-        ee_pose_base = tf_buffer.transform(ee_pose_dummy, planning_frame,
-                                           tf2::durationFromSec(1.0));
-      } catch (const tf2::TransformException &ex) {
-        RCLCPP_ERROR(logger, "TF transform failed: %s", ex.what());
-        continue;
-      }
-
-      move_group.clearPoseTargets();
-      move_group.setStartStateToCurrentState();
-      move_group.setPoseTarget(ee_pose_base);
-
-      MoveGroupInterface::Plan plan;
-      if (move_group.plan(plan)) {
-        move_group.execute(plan);
-        move_group.stop();
-        move_group.clearPoseTargets();
-        RCLCPP_INFO(logger, "Moved to target pose");
-      } else {
-        RCLCPP_ERROR(logger, "Pose planning failed");
-      }
-    }
+  PoseCommanderAction() : Node("ar4_pose_commander") {
+    // Standard initialization that doesn't require shared_from_this()
+    tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   }
 
+  // Moved MoveGroup and Action Server initialization here
+  void init() {
+    move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(shared_from_this(), "ar_manipulator");
+    
+    this->action_server_ = rclcpp_action::create_server<MoveToPose>(
+      this, "ar4_point_control",
+      std::bind(&PoseCommanderAction::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&PoseCommanderAction::handle_cancel, this, std::placeholders::_1),
+      std::bind(&PoseCommanderAction::handle_accepted, this, std::placeholders::_1));
+
+    RCLCPP_INFO(this->get_logger(), "AR4 Pose Commander Action Server Ready.");
+  }
+
+private:
+  std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
+  rclcpp_action::Server<MoveToPose>::SharedPtr action_server_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
+  rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const MoveToPose::Goal> goal) {
+    (void)uuid;
+    RCLCPP_INFO(this->get_logger(), "Received goal request with strategy: %s", goal->strategy.c_str());
+    return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+  }
+
+  rclcpp_action::CancelResponse handle_cancel(const std::shared_ptr<GoalHandleMoveToPose> goal_handle) {
+    (void)goal_handle;
+    RCLCPP_INFO(this->get_logger(), "Received request to cancel goal");
+    move_group_->stop();
+    return rclcpp_action::CancelResponse::ACCEPT;
+  }
+
+  void handle_accepted(const std::shared_ptr<GoalHandleMoveToPose> goal_handle) {
+    std::thread{std::bind(&PoseCommanderAction::execute, this, std::placeholders::_1), goal_handle}.detach();
+  }
+
+  void execute(const std::shared_ptr<GoalHandleMoveToPose> goal_handle) {
+    const auto goal = goal_handle->get_goal();
+    auto result = std::make_shared<MoveToPose::Result>();
+
+    move_group_->clearPoseTargets();
+    
+    if (goal->strategy == "HOME") {
+      move_group_->setNamedTarget("home");
+    } else {
+      geometry_msgs::msg::PoseStamped target_stamped;
+      target_stamped.header.frame_id = "base_link"; // Standardized frame name
+      target_stamped.header.stamp = this->get_clock()->now();
+      target_stamped.pose = goal->target_pose; 
+
+      move_group_->setPoseTarget(target_stamped);
+    }
+
+    moveit::planning_interface::MoveGroupInterface::Plan my_plan;
+    bool success = (move_group_->plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
+    if (success) {
+      move_group_->execute(my_plan);
+      result->success = true;
+      goal_handle->succeed(result);
+      RCLCPP_INFO(this->get_logger(), "Execution successful");
+    } else {
+      result->success = false;
+      goal_handle->abort(result);
+      RCLCPP_ERROR(this->get_logger(), "Planning failed");
+    }
+  }
+};
+}
+
+int main(int argc, char ** argv) {
+  rclcpp::init(argc, argv);
+  // Create the shared_ptr first, then call init()
+  auto node = std::make_shared<point_control::PoseCommanderAction>();
+  node->init(); 
+  rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;
 }

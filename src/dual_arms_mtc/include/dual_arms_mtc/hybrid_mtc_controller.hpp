@@ -46,6 +46,9 @@ public:
     HybridMTCController();
     ~HybridMTCController();
 
+    // Initialization
+    void init();
+
     // Zone detection and mode switching
     bool is_in_handover_zone(const geometry_msgs::msg::Pose& pose);
     void switch_to_mtc_mode();

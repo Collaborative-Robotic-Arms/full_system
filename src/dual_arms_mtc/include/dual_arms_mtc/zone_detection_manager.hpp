@@ -6,6 +6,8 @@
 #include <dual_arms_msgs/srv/get_handover_zone.hpp>
 #include <dual_arms_mtc/control_strategy.hpp>
 #include <memory>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 #include <atomic>
 #include <vector>
 #include <cmath>
@@ -59,43 +61,21 @@ public:
         const geometry_msgs::msg::Pose& ar4_pose,
         const geometry_msgs::msg::Pose& abb_pose);
     
-    // ========================================================================
-    // OPERATION-SPECIFIC ZONE CHECKING - NEW FOR PARALLEL/SEQUENTIAL CONTROL
-    // ========================================================================
-    
-    /**
-     * @brief Determine operation zone for dual arm coordination
-     * Returns whether arms are in safe zones, handover area, or collision risk
-     */
+    // OPERATION-SPECIFIC ZONE CHECKING
     OperationZone get_operation_zone(
         const geometry_msgs::msg::Pose& ar4_pose,
         const geometry_msgs::msg::Pose& abb_pose);
     
-    /**
-     * @brief Check if both arms can safely pick/place in parallel
-     * Returns true if arms are far enough apart to operate independently
-     */
     bool can_operate_in_parallel(
         const geometry_msgs::msg::Pose& ar4_pose,
         const geometry_msgs::msg::Pose& abb_pose);
     
-    /**
-     * @brief Check if arms are in sequential handover mode
-     * Returns true if at least one arm is in handover zone and both are ready
-     */
     bool should_use_sequential_handover(
         const geometry_msgs::msg::Pose& ar4_pose,
         const geometry_msgs::msg::Pose& abb_pose);
     
-    /**
-     * @brief Calculate minimum safe separation for parallel operations
-     * @return Required separation distance in meters
-     */
     double get_required_parallel_separation() const;
     
-    /**
-     * @brief Determine which control mode should be active based on arm positions
-     */
     OperationType determine_required_operation_type(
         const geometry_msgs::msg::Pose& ar4_pose,
         const geometry_msgs::msg::Pose& abb_pose);
@@ -105,7 +85,6 @@ public:
     void set_handover_zone_radius(double radius_x, double radius_y, double radius_z);
     void set_approach_zone_margin(double margin);
 
-    // Callbacks for state transitions
     using ZoneTransitionCallback = std::function<void(const ZoneTransition&)>;
     void register_zone_transition_callback(ZoneTransitionCallback callback);
 
@@ -115,9 +94,9 @@ private:
         double handover_radius_x = 0.2;
         double handover_radius_y = 0.2;
         double handover_radius_z = 0.2;
-        double approach_margin = 0.15;  // Approach zone is 15cm outside handover zone
-        double min_arm_separation = 0.1; // Minimum distance between arm TCP points
-        double parallel_safe_separation = 0.3;  // Safe separation for parallel operations
+        double approach_margin = 0.15;
+        double min_arm_separation = 0.1;
+        double parallel_safe_separation = 0.3;
     } zone_config_;
 
     // State tracking
@@ -128,6 +107,10 @@ private:
     // Publishers for diagnostics
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr zone_status_pub_;
     rclcpp::TimerBase::SharedPtr diagnostic_timer_;
+
+    // TF2 Listener for live simulation tracking
+    std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
     // Helper methods
     double calculate_distance(const geometry_msgs::msg::Pose& pose1, 

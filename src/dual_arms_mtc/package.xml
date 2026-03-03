@@ -11,6 +11,7 @@
 
   <depend>moveit_task_constructor_core</depend>
   <depend>rclcpp</depend>
+  <depend>dual_arms_msgs</depend>
   <depend>supervisor_package</depend>
   <depend>geometry_msgs</depend>
 
