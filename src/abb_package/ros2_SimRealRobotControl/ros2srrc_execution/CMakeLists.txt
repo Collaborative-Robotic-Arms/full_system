@@ -26,6 +26,9 @@ find_package(moveit_ros_planning REQUIRED)
 find_package(moveit_ros_move_group REQUIRED)
 find_package(moveit_planners_ompl REQUIRED)
 find_package(moveit_visual_tools REQUIRED)
+# 1. Add these to your existing find_package list
+find_package(moveit_ros_perception REQUIRED)
+find_package(moveit_ros_warehouse REQUIRED)
 
 # Other dependencies
 find_package(ros2srrc_data REQUIRED)
@@ -34,7 +37,7 @@ find_package(ros2_robotiqgripper REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-
+find_package(GLUT REQUIRED)
 # Include directories
 include_directories(
   ${CMAKE_SOURCE_DIR}/include
@@ -72,6 +75,8 @@ ament_target_dependencies(move
   rclcpp
   rclcpp_action
   moveit_ros_planning_interface
+  moveit_ros_perception      # Resolves OccupancyMapMonitor errors
+  moveit_ros_warehouse  
   moveit_core
   moveit_msgs
   std_msgs

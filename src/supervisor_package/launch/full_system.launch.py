@@ -91,7 +91,7 @@ def generate_launch_description():
     # Assembly Supervisor (The Brain)
     supervisor_node = Node(
         package='supervisor_package',
-        executable='supervisor_node', # Corrected from 'supervisor'
+        executable='hybrid_supervisor_node', # Corrected from 'supervisor'
         name='system_supervisor',
         output='screen',
         parameters=[

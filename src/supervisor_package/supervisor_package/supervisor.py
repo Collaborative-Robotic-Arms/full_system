@@ -251,9 +251,9 @@ class AssemblySupervisor(Node):
 
                 self.state = "PROCESS_NEXT"
 
-            # =========================
+            # ======================================
             # STATE 2: PROCESS NEXT & GRASP PIPELINE
-            # =========================
+            # ======================================
             elif self.state == "PROCESS_NEXT":
                 if not self.assembly_queue:
                     self.get_logger().info('All tasks complete!')

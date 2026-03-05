@@ -55,6 +55,27 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
   RENAME mock_ar4)
 
+install(PROGRAMS
+  supervisor_package/hybrid_supervisor_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME hybrid_supervisor_node)
+
+# Mock service nodes for testing
+install(PROGRAMS
+  supervisor_package/mock_detection_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME mock_detection_node)
+
+install(PROGRAMS
+  supervisor_package/mock_gui_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME mock_gui_node)
+
+install(PROGRAMS
+  supervisor_package/mock_grasping_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME mock_grasping_node)
+
 # 4. Export and Package (CRITICAL FIXES HERE)
 ament_export_dependencies(rosidl_default_runtime)
 ament_export_dependencies(tf2_ros tf2_geometry_msgs geometry_msgs) # Added geometry_msgs

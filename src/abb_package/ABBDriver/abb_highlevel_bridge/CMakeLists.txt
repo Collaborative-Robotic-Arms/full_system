@@ -21,7 +21,9 @@ find_package(rclcpp_action REQUIRED)
 
 find_package(control_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
-
+find_package(moveit_ros_perception REQUIRED)
+find_package(moveit_ros_warehouse REQUIRED)
+find_package(GLUT REQUIRED)
 # Executable for end effector control
 add_executable(abb_endeffector_control_client src/endEffector.cpp)
 ament_target_dependencies(abb_endeffector_control_client rclcpp abb_robot_msgs) 
@@ -37,6 +39,8 @@ ament_target_dependencies(abb_task_server
   rclcpp_action 
   abb_robot_msgs 
   moveit_ros_planning_interface 
+  moveit_ros_perception      # Fixes OccupancyMapMonitor errors
+  moveit_ros_warehouse   
   moveit_core 
   dual_arms_msgs
   control_msgs

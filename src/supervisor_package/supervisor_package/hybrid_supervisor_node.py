@@ -83,6 +83,13 @@ class HybridAssemblySupervisor(Node):
         self.current_grasp_point = None
         self.handover_pose = None
         
+        # Handover-specific state
+        self.operation_type = None
+        self.intermediate_pose = None
+        self.abb_grasp_point_for_handover = None
+        self.ar4_current_pose = None
+        self.abb_current_pose = None
+        
         # MTC state tracking
         self.control_mode = "MULTITHREADED"  # MULTITHREADED or MTC_HANDOVER
         self.in_handover_zone = False
@@ -118,6 +125,76 @@ class HybridAssemblySupervisor(Node):
                 self.get_logger().info('MTC handover mode activated for collaborative task')
             else:
                 self.get_logger().info('Switched back to standard multithreaded control')
+
+    # ========================================================================
+    # HELPER METHODS FOR HANDOVER DECISIONS
+    # ========================================================================
+    
+    def is_handover_operation(self, brick):
+        """
+        Determine if this brick requires handover operation
+        Handover: start_side != target_side (object moves between arms)
+        """
+        if brick.start_side == brick.target_side:
+            return False
+        if brick.start_side not in ["AR4", "ABB"] or brick.target_side not in ["AR4", "ABB"]:
+            return False
+        return True
+
+    def calculate_intermediate_pose(self, ar4_position, abb_target, height_offset=0.1):
+        """
+        Calculate safe intermediate pose between AR4 and ABB
+        
+        Args:
+            ar4_position: Current AR4 end-effector position (with brick)
+            abb_target: ABB's target placement location
+            height_offset: Extra height for clearance (default 0.1m)
+        
+        Returns:
+            geometry_msgs.msg.Pose of intermediate point
+        """
+        intermediate = Pose()
+        
+        # Intermediate is roughly halfway between AR4 and ABB side
+        # but closer to where the handover should occur
+        intermediate.position.x = (ar4_position.position.x * 0.3 + abb_target.position.x * 0.7)
+        intermediate.position.y = (ar4_position.position.y + abb_target.position.y) / 2.0
+        intermediate.position.z = max(ar4_position.position.z, abb_target.position.z) + height_offset
+        
+        # Keep AR4's orientation (holding the brick)
+        intermediate.orientation = ar4_position.orientation
+        
+        self.get_logger().info(
+            f'Intermediate pose calculated: x={intermediate.position.x:.3f}, '
+            f'y={intermediate.position.y:.3f}, z={intermediate.position.z:.3f}'
+        )
+        
+        return intermediate
+
+    def transform_stamped_to_pose(self, transform_stamped):
+        """Convert TransformStamped to Pose"""
+        pose = Pose()
+        pose.position.x = transform_stamped.transform.translation.x
+        pose.position.y = transform_stamped.transform.translation.y
+        pose.position.z = transform_stamped.transform.translation.z
+        pose.orientation = transform_stamped.transform.rotation
+        return pose
+
+    async def get_current_arm_poses(self):
+        """Get current end-effector poses from TF2"""
+        try:
+            # Get AR4 current pose
+            t_ar4 = self.tf_buffer.lookup_transform('world', 'ar4_tool_link', rclpy.time.Time())
+            self.ar4_current_pose = self.transform_stamped_to_pose(t_ar4)
+            
+            # Get ABB current pose
+            t_abb = self.tf_buffer.lookup_transform('world', 'abb_tool_link', rclpy.time.Time())
+            self.abb_current_pose = self.transform_stamped_to_pose(t_abb)
+            
+            return True
+        except Exception as e:
+            self.get_logger().warn(f'Could not get arm poses: {e}')
+            return False
 
     # ========================================================================
     # SUPERVISOR STATE MACHINE WITH MTC INTEGRATION
@@ -194,22 +271,68 @@ class HybridAssemblySupervisor(Node):
                     
                     self.get_logger().info(f'Grasp retrieved. Quality: {self.current_grasp_point.quality}')
                     
-                    # Route to correct handler based on start_side
-                    if self.current_brick.start_side == "ABB":
-                        self.state = "EXECUTE_ABB_PICK"
-                    elif self.current_brick.start_side == "HANDOVER":
-                        # Check if we should use MTC mode
-                        if self.enable_mtc_mode and self.detect_handover_proximity(self.current_grasp_point.pose):
-                            await self.switch_control_mode("MTC_HANDOVER")
-                            self.state = "MTC_HANDOVER_EXECUTION"
+                    # === NEW: PREVENTATIVE OPERATION TYPE DECISION ===
+                    # Decide BEFORE sending any pick actions
+                    
+                    if self.is_handover_operation(self.current_brick):
+                        # Operation type: HANDOVER (e.g., AR4 pick → ABB place)
+                        self.get_logger().info(
+                            f'🔄 HANDOVER detected: {self.current_brick.start_side} → {self.current_brick.target_side}'
+                        )
+                        self.operation_type = "HANDOVER"
+                        self.state = "AR4_PICK_FOR_HANDOVER"
+                        
+                    elif len(self.assembly_queue) > 0:
+                        # Operation type: PARALLEL (if more bricks available)
+                        self.get_logger().info(f'⚡ Multiple bricks detected - checking for parallel execution')
+                        
+                        # Check if we can do parallel (both arms available)
+                        ar4_bricks = [b for b in self.assembly_queue if b.start_side == "AR4"]
+                        abb_bricks = [b for b in self.assembly_queue if b.start_side == "ABB"]
+                        
+                        if ar4_bricks and abb_bricks:
+                            self.operation_type = "PARALLEL"
+                            self.state = "INITIALIZE_PARALLEL_EXECUTION"
                         else:
-                            self.state = "HANDOVER_SEQUENCE"
-                    elif self.current_brick.start_side == "AR4":
-                        self.state = "EXECUTE_AR4_DIRECT"
+                            # Fall back to sequential
+                            self.operation_type = "SEQUENTIAL"
+                            self.state = self.current_brick.start_side  # "AR4" or "ABB"
                     else:
-                        self.get_logger().error(f"Unknown start_side: {self.current_brick.start_side}")
+                        # Operation type: SEQUENTIAL (only one brick, or no suitable pairs)
+                        self.get_logger().info(f'📦 Sequential pick/place operation')
+                        self.operation_type = "SEQUENTIAL"
+                        self.state = self.current_brick.start_side  # "AR4" or "ABB"
                 else:
                     self.get_logger().error(f'Failed to get grasp for brick {self.current_brick.id}')
+                    self.state = "PROCESS_NEXT"
+
+            # ================================================================
+            # PARALLEL EXECUTION STATE
+            # ================================================================
+            elif self.state == "INITIALIZE_PARALLEL_EXECUTION":
+                """Initialize parallel execution of AR4 and ABB operations"""
+                self.get_logger().info('🔄 Initializing parallel execution...')
+                
+                # Get AR4 and ABB bricks from queue
+                ar4_bricks = [b for b in self.assembly_queue if b.start_side == "AR4"]
+                abb_bricks = [b for b in self.assembly_queue if b.start_side == "ABB"]
+                
+                if ar4_bricks and abb_bricks:
+                    # Execute parallel operations
+                    self.get_logger().info(
+                        f'Parallel execution: AR4 will handle {len(ar4_bricks)} bricks, '
+                        f'ABB will handle {len(abb_bricks)} bricks'
+                    )
+                    
+                    # For now, transition to sequential execution of the current brick
+                    # (parallel threading would require more complex async coordination)
+                    if self.current_brick.start_side == "AR4":
+                        self.state = "EXECUTE_AR4_DIRECT"
+                    else:
+                        self.state = "EXECUTE_ABB_PICK"
+                else:
+                    # Fallback: not enough bricks for parallel
+                    self.get_logger().warn('Not enough bricks for parallel execution, falling back to sequential')
                     self.state = "PROCESS_NEXT"
 
             # ================================================================
@@ -244,75 +367,167 @@ class HybridAssemblySupervisor(Node):
                     self.state = "HANDOVER_SEQUENCE"
 
             # ================================================================
-            # STANDARD MULTITHREADED HANDOVER STATE (FALLBACK)
+            # HANDOVER SEQUENCE STATES (REFACTORED)
             # ================================================================
-            elif self.state == "HANDOVER_SEQUENCE":
-                if self.control_mode != "MULTITHREADED":
-                    await self.switch_control_mode("MULTITHREADED")
-                
-                self.state = "AR4_PICK_FOR_HANDOVER"
-
-            # ... (rest of existing states: EXECUTE_AR4_DIRECT, AR4_PLACE_ON_GRID, EXECUTE_ABB_PICK, etc.)
-            # Keep all existing state handlers here
 
             elif self.state == "AR4_PICK_FOR_HANDOVER":
-                self.get_logger().info(f'Starting AR4 Pick for handover')
-                await self.set_ar4_gripper(True)
+                """Phase 1: AR4 picks brick from grasp point"""
+                self.get_logger().info(f'[HANDOVER Phase 1] AR4 picking brick {self.current_brick.id}')
                 
-                goal_msg = MoveToPose.Goal()
-                goal_msg.target_pose = self.current_grasp_point.pose
-                goal_msg.strategy = "APPROACH_OFFSET"
-                action_result = await self.send_action_goal(self.ar4_point_client, goal_msg)
-                if not action_result or not action_result.success:
+                # Open gripper
+                if not await self.set_ar4_gripper(True):
+                    self.get_logger().error('Failed to open AR4 gripper')
                     self.state = "RECOVERY"
                     return
-
-                await self.set_ar4_gripper(False)
-
-                self.get_logger().info('Switching to Visual Servoing...')
-                vs_goal = AlignToTarget.Goal()
-                vs_goal.object_id = self.current_brick.type
-                action_result = await self.send_action_goal(self.ar4_vs_client, vs_goal)
+                
+                # Approach
+                approach_goal = MoveToPose.Goal()
+                approach_goal.target_pose = self.current_grasp_point.pose
+                approach_goal.strategy = "APPROACH_OFFSET"
+                
+                action_result = await self.send_action_goal(self.ar4_point_client, approach_goal)
                 if not action_result or not action_result.success:
+                    self.get_logger().error('AR4 approach failed')
                     self.state = "RECOVERY"
                     return
-
-                self.get_logger().info('Lowering and Grasping...')
+                
+                # Grasp
                 grasp_goal = MoveToPose.Goal()
                 grasp_goal.target_pose = self.current_grasp_point.pose
                 grasp_goal.strategy = "GRASP"
+                
                 action_result = await self.send_action_goal(self.ar4_point_client, grasp_goal)
                 if not action_result or not action_result.success:
+                    self.get_logger().error('AR4 grasp failed')
                     self.state = "RECOVERY"
                     return
+                
+                # Close gripper with object
+                if not await self.set_ar4_gripper(False):
+                    self.get_logger().error('Failed to close AR4 gripper')
+                    self.state = "RECOVERY"
+                    return
+                
+                self.get_logger().info('✓ AR4 picked successfully')
+                self.state = "AR4_MOVE_TO_INTERMEDIATE"
 
-                self.state = "HANDOVER_EXECUTION"
-
-            elif self.state == "HANDOVER_EXECUTION":
-                self.get_logger().info('Starting handover sequence')
-
-                goal = MoveToPose.Goal()
-                goal.strategy = "GOTO_HANDOVER"
-                action_result = await self.send_action_goal(self.ar4_point_client, goal)
+            elif self.state == "AR4_MOVE_TO_INTERMEDIATE":
+                """Phase 2: AR4 moves to intermediate pose for ABB to access"""
+                self.get_logger().info(f'[HANDOVER Phase 2] AR4 moving to intermediate position')
+                
+                # Calculate intermediate pose (between AR4 and ABB side of table)
+                if not await self.get_current_arm_poses():
+                    self.get_logger().error('Failed to get arm poses')
+                    self.state = "RECOVERY"
+                    return
+                
+                self.intermediate_pose = self.calculate_intermediate_pose(
+                    self.current_grasp_point.pose,
+                    self.current_brick.place_pose
+                )
+                
+                # Move AR4 to intermediate
+                move_goal = MoveToPose.Goal()
+                move_goal.target_pose = self.intermediate_pose
+                move_goal.strategy = "MOVE"
+                
+                action_result = await self.send_action_goal(self.ar4_point_client, move_goal)
                 if not action_result or not action_result.success:
+                    self.get_logger().error('AR4 failed to reach intermediate position')
+                    self.state = "RECOVERY"
+                    return
+                
+                self.get_logger().info('✓ AR4 at intermediate position')
+                self.state = "REQUEST_ABB_GRASP_POINT"
+
+            elif self.state == "REQUEST_ABB_GRASP_POINT":
+                """Phase 3: Request updated grasp point for ABB while AR4 holds at intermediate"""
+                self.get_logger().info(f'[HANDOVER Phase 3] Requesting ABB grasp point from intermediate')
+                
+                if not self.grasp_pipeline_client.wait_for_service(timeout_sec=2.0):
+                    self.get_logger().error('Grasp Pipeline service not available!')
+                    self.state = "RECOVERY"
+                    return
+                
+                # Request grasp point WHILE AR4 is at intermediate position
+                grasp_req = GetGrasp.Request()
+                grasp_req.brick_index = str(self.current_brick.id)
+                
+                grasp_result = await self.grasp_pipeline_client.call_async(grasp_req)
+                
+                if grasp_result.success:
+                    abb_grasp_point = grasp_result.grasp_point
+                    abb_grasp_point.pose = self.transform_pose_to_abb(abb_grasp_point.pose)
+                    
+                    self.abb_grasp_point_for_handover = abb_grasp_point
+                    self.get_logger().info(
+                        f'✓ Updated grasp point for ABB: '
+                        f'x={abb_grasp_point.pose.position.x:.3f}, '
+                        f'y={abb_grasp_point.pose.position.y:.3f}, '
+                        f'z={abb_grasp_point.pose.position.z:.3f}'
+                    )
+                    self.state = "ABB_PICK_FROM_HANDOVER"
+                else:
+                    self.get_logger().error('Failed to get ABB grasp point!')
                     self.state = "RECOVERY"
                     return
 
-                abb_goal = ExecuteTask.Goal()
-                abb_goal.task_type = "PICK_FROM_HANDOVER"
-                abb_goal.target_pose = self.handover_pose
-                action_result = await self.send_action_goal(self.abb_client, abb_goal)
+            elif self.state == "ABB_PICK_FROM_HANDOVER":
+                """Phase 4: ABB picks brick from AR4 at intermediate position"""
+                self.get_logger().info(f'[HANDOVER Phase 4] ABB picking from intermediate')
+                
+                abb_pick_goal = ExecuteTask.Goal()
+                abb_pick_goal.task_type = "PICK"
+                abb_pick_goal.target_pose = self.abb_grasp_point_for_handover.pose
+                
+                action_result = await self.send_action_goal(self.abb_client, abb_pick_goal)
+                
                 if not action_result or not action_result.success:
+                    self.get_logger().error('ABB failed to pick from intermediate')
                     self.state = "RECOVERY"
                     return
+                
+                self.get_logger().info('✓ ABB picked successfully')
+                self.state = "AR4_RELEASE_AT_INTERMEDIATE"
 
-                release_goal = MoveToPose.Goal()
-                release_goal.strategy = "RELEASE"
-                action_result = await self.send_action_goal(self.ar4_point_client, release_goal)
+            elif self.state == "AR4_RELEASE_AT_INTERMEDIATE":
+                """Phase 5: AR4 releases brick and retracts"""
+                self.get_logger().info(f'[HANDOVER Phase 5] AR4 releasing brick')
+                
+                # Open gripper (release)
+                if not await self.set_ar4_gripper(True):
+                    self.get_logger().error('Failed to open AR4 gripper for release')
+                    self.state = "RECOVERY"
+                    return
+                
+                # Move AR4 back to safe position
+                retract_goal = MoveToPose.Goal()
+                retract_goal.strategy = "HOME"
+                
+                action_result = await self.send_action_goal(self.ar4_point_client, retract_goal)
                 if not action_result or not action_result.success:
+                    self.get_logger().warn('AR4 retract to HOME may have issues')
+                    # Still continue to next phase (ABB has the brick, AR4 position not critical)
+                
+                self.get_logger().info('✓ AR4 released and retracted')
+                self.state = "ABB_PLACE_FROM_HANDOVER"
+
+            elif self.state == "ABB_PLACE_FROM_HANDOVER":
+                """Phase 6: ABB places brick at target location"""
+                self.get_logger().info(f'[HANDOVER Phase 6] ABB placing brick at target')
+                
+                abb_place_goal = ExecuteTask.Goal()
+                abb_place_goal.task_type = "PLACE"
+                abb_place_goal.target_pose = self.current_brick.place_pose
+                
+                action_result = await self.send_action_goal(self.abb_client, abb_place_goal)
+                
+                if not action_result or not action_result.success:
+                    self.get_logger().error('ABB failed to place brick')
                     self.state = "RECOVERY"
                     return
-
+                
+                self.get_logger().info(f'✅ HANDOVER COMPLETE: Brick {self.current_brick.id} successfully transferred!')
                 self.state = "PROCESS_NEXT"
 
             elif self.state == "EXECUTE_AR4_DIRECT":

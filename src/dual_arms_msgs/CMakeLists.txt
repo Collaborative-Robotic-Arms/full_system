@@ -25,6 +25,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/DetectBricks.srv"      
   "srv/GetGrasp.srv"
   "srv/GetHandoverZone.srv"
+  "srv/ExecuteMTCHandover.srv"
   DEPENDENCIES geometry_msgs std_msgs
 )
 ament_export_dependencies(rosidl_default_runtime)

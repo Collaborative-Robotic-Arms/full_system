@@ -18,6 +18,11 @@ find_package(control_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(supervisor_package REQUIRED)
+# 1. Add these to your find_package list
+find_package(moveit_ros_perception REQUIRED)
+find_package(moveit_ros_warehouse REQUIRED)
+find_package(GLUT REQUIRED)
+find_package(moveit_ros_occupancy_map_monitor REQUIRED)
 
 # ==========================================================
 # Executable
@@ -33,12 +38,16 @@ ament_target_dependencies(pose_commander_action
   rclcpp
   rclcpp_action
   moveit_ros_planning_interface
+  moveit_ros_perception      # Fixes OccupancyMapMonitor errors
+  moveit_ros_warehouse  
+  moveit_core
   tf2_ros                                   # <--- ADDED
   tf2_geometry_msgs
   control_msgs
   std_msgs
   geometry_msgs
   supervisor_package
+  moveit_ros_occupancy_map_monitor
 )
 
 # ==========================================================
