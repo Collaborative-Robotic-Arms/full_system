@@ -52,7 +52,7 @@ class MockDetectionNode(Node):
             brick = Brick()
             brick.header = Header()
             brick.header.stamp = self.get_clock().now().to_msg()
-            brick.header.frame_id = "abb_base_link"
+            brick.header.frame_id = "base_link"
             
             brick.id = i
             
@@ -61,17 +61,18 @@ class MockDetectionNode(Node):
             brick_type_name = BRICK_TYPE_NAMES[brick.type]
             
             # Alternate between AR4 and ABB as starting position
+            # Alternate between AR4 and ABB as starting position
             brick.side = AR4 if i % 2 == 0 else ABB
             side_name = "AR4" if brick.side == AR4 else "ABB"
             
-            # Generate mock pose - slightly randomized
+            # Match the detection coordinates to the grasp coordinates
             brick.pose = Pose()
-            brick.pose.position = Point(
-                x=0.5 + random.uniform(-0.1, 0.1),
-                y=-0.3 + random.uniform(-0.1, 0.1) if brick.side == AR4 else 0.3 + random.uniform(-0.1, 0.1),
-                z=0.35 + (i * 0.05)  # Stack height
-            )
-            brick.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+            if brick.side == AR4:
+                brick.pose.position = Point(x=0.65, y=0.10, z=0.05)
+                brick.pose.orientation = Quaternion(x=0.707, y=0.707, z=0.0, w=0.0)
+            else:
+                brick.pose.position = Point(x=0.40, y=-0.10, z=0.05)
+                brick.pose.orientation = Quaternion(x=0.0, y=0.707, z=0.0, w=0.707)
             
             bricks.append(brick)
             self.get_logger().info(

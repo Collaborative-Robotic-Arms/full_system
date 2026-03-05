@@ -28,15 +28,6 @@ class MockGraspingNode(Node):
         self.get_logger().info('Mock Grasping Pipeline Node started - serving /grasp/get_grasp_point')
     
     def _generate_grasp_for_brick(self, brick_index: str):
-        """
-        Generate a mock grasp point for a brick
-        
-        Args:
-            brick_index: The ID of the brick to grasp
-            
-        Returns:
-            GraspPoint with realistic grasp parameters
-        """
         try:
             brick_id = int(brick_index)
         except ValueError:
@@ -44,31 +35,22 @@ class MockGraspingNode(Node):
         
         grasp = GraspPoint()
         grasp.header = Header()
-        grasp.header.frame_id = "abb_base_link"
+        grasp.header.frame_id = "base_link"
         grasp.header.stamp = self.get_clock().now().to_msg()
-        
         grasp.brick_id = brick_id
         
-        # Generate mock grasp pose with slight randomization
-        # This simulates a CNN model detecting grasp points
+        is_ar4_side = (brick_id % 2 == 0)
         grasp.pose = Pose()
-        grasp.pose.position = Point(
-            x=0.5 + random.uniform(-0.05, 0.05),
-            y=-0.3 + random.uniform(-0.05, 0.05),
-            z=0.35 + (brick_id * 0.05)  # Stacked height
-        )
         
-        # Randomize orientation for realistic variation
-        grasp.pose.orientation = Quaternion(
-            x=float(random.uniform(-0.1, 0.1)),
-            y=float(random.uniform(-0.1, 0.1)),
-            z=0.0,
-            w=1.0
-        )
+        # Split the grasp coordinates based on which arm is picking
+        if is_ar4_side:
+            grasp.pose.position = Point(x=0.65, y=0.10, z=0.05)
+            grasp.pose.orientation = Quaternion(x=0.707, y=0.707, z=0.0, w=0.0)
+        else:
+            grasp.pose.position = Point(x=0.40, y=-0.10, z=0.05)
+            grasp.pose.orientation = Quaternion(x=0.0, y=0.707, z=0.0, w=0.707)
         
-        # Quality score simulates model confidence (0.7 - 0.99)
         grasp.quality = random.uniform(0.7, 0.99)
-        
         return grasp
     
     def get_grasp_callback(self, request, response):

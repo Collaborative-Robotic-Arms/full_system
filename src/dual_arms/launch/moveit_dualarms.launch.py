@@ -290,7 +290,7 @@ def generate_launch_description():
     ros_gz_image_bridge = Node(
         package="ros_gz_image",
         executable="image_bridge",
-        arguments=["/cameraAR4/image_raw", "/environment_camera/image_raw"],
+        arguments=["/environment_camera/image_raw"],
     )
 
     visp_controller_node = Node(

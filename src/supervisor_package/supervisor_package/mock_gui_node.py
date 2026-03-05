@@ -43,25 +43,31 @@ class MockGUINode(Node):
             # Bricks go to assembly structure
             brick.target_side = "TOP" if i >= 3 else "BOTTOM"
             
-            # AR4 pickup position
+            # --- PICKUP POSES ---
             if brick.start_side == "AR4":
-                brick.pickup_pose = Pose()
-                brick.pickup_pose.position = Point(x=0.4, y=-0.35, z=0.35)
-                brick.pickup_pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+                # Keep AR4 where it is (it works perfectly)
+                brick.pickup_pose.position = Point(x=0.65, y=0.10, z=0.05) 
+                brick.pickup_pose.orientation = Quaternion(x=0.707, y=0.707, z=0.0, w=0.0)
             else:
-                # ABB pickup position
+                # Move ABB pickup closer to the ABB base (X=0)
                 brick.pickup_pose = Pose()
-                brick.pickup_pose.position = Point(x=0.6, y=0.35, z=0.35)
-                brick.pickup_pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
-            
-            # Destination pose
+                brick.pickup_pose.position = Point(x=0.40, y=-0.10, z=0.05) # <-- CHANGED TO 0.40
+                brick.pickup_pose.orientation = Quaternion(x=0.0, y=0.707, z=0.0, w=0.707)
+
+                
+            # --- DESTINATION POSES ---
+            # --- DESTINATION POSES ---
             brick.place_pose = Pose()
-            brick.place_pose.position = Point(
-                x=0.5,
-                y=0.0,
-                z=0.35 + (i * 0.08)  # Stack height increases
-            )
-            brick.place_pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+            
+            # Match the placement orientation AND Y-offset to the arm that is holding it
+            if brick.start_side == "AR4":
+                # Place slightly to the left
+                brick.place_pose.position = Point(x=0.55, y=0.10, z=0.05 + (i * 0.04))
+                brick.place_pose.orientation = Quaternion(x=0.707, y=0.707, z=0.0, w=0.0)
+            else:
+                # Place slightly to the right
+                brick.place_pose.position = Point(x=0.55, y=-0.10, z=0.05 + (i * 0.04))
+                brick.place_pose.orientation = Quaternion(x=0.0, y=0.707, z=0.0, w=0.707)
             
             plan.append(brick)
         

@@ -180,12 +180,21 @@ class MockRobotSystem(Node):
             
             response.bricks = [brick1, brick2, brick3, brick4]
             
-            # --- CRITICAL FIX: Safe Handover Pose ---
+# --- THE TRUE HANDOVER POSE ---
+            # Center of the table, elevated. 
             response.handover_pose = Pose()
-            response.handover_pose.position.x = 0.40  # 40cm in front of the ABB base
+            response.handover_pose.position.x = 0.50  
             response.handover_pose.position.y = 0.00
-            response.handover_pose.position.z = 0.30  # 30cm above the table to avoid collisions
-            response.handover_pose.orientation.w = 1.0
+            response.handover_pose.position.z = 0.30  # Raised slightly higher for a "handshake"
+            
+            # The "Handshake" Orientation:
+            # We want the gripper pointing horizontally along the X-axis towards the other robot,
+            # not straight down into the table. 
+            # A pure horizontal pointing orientation in quaternions (Pitch = 90 deg):
+            response.handover_pose.orientation.x = 0.0
+            response.handover_pose.orientation.y = 0.7071  # 90-degree pitch
+            response.handover_pose.orientation.z = 0.0
+            response.handover_pose.orientation.w = 0.7071
             
             return response
 
@@ -205,7 +214,8 @@ class MockRobotSystem(Node):
 
             elif request.brick_index == "2":
                 self.get_logger().info("Mock: Providing Grasp Point for Brick 2")
-                gp.pose.position = Point(x=0.0, y=-0.3, z=0.22)
+                # FIX: X coordinate updated to be safely within the ABB arm's reach
+                gp.pose.position = Point(x=0.75, y=-0.3, z=0.22)
                 gp.pose.orientation.x = 0.0
                 gp.pose.orientation.y = 0.0
                 gp.pose.orientation.z = 1.0
@@ -221,7 +231,8 @@ class MockRobotSystem(Node):
                 
             elif request.brick_index == "4":
                 self.get_logger().info("Mock: Providing Grasp Point for Brick 4")
-                gp.pose.position = Point(x=0.1, y=-0.25, z=0.22)
+                # FIX: X coordinate updated to be safely within the ABB arm's reach
+                gp.pose.position = Point(x=0.75, y=-0.25, z=0.22)
                 gp.pose.orientation.x = 0.0
                 gp.pose.orientation.y = 0.0
                 gp.pose.orientation.z = 1.0

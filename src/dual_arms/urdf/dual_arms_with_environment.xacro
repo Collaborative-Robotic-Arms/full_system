@@ -4,7 +4,7 @@
   <xacro:include filename="$(find assembly_environment)/urdf/environment.xacro" />
   <xacro:include filename="$(find annin_ar4_description)/urdf/ar_macro.xacro" />
   <xacro:include filename="$(find annin_ar4_description)/urdf/ar_gripper_macro.xacro" />
-  <xacro:include filename="$(find annin_ar4_description)/urdf/ar_camera_macro.xacro" />
+  <!-- <xacro:include filename="$(find annin_ar4_description)/urdf/ar_camera_macro.xacro" /> -->
   
   <xacro:include filename="$(find dual_arms)/urdf/irb120_wrapper.xacro" /> 
   <xacro:include filename="$(find dual_arms)/urdf/dual_arms.gazebo.xacro" />
@@ -38,9 +38,9 @@
     tf_prefix="ar4_"
     parent="ar4_ee_link"/>
   
-  <xacro:ar_camera
+  <!-- <xacro:ar_camera
     tf_prefix="ar4_"
-    parent="ar4_ee_link"/>
+    parent="ar4_ee_link"/> -->
   
   <xacro:irb120_mounted parent="abb_table">
     <origin xyz="0 0 0" rpy="0 0 0"/>
