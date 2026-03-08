@@ -158,29 +158,46 @@ void ZoneDetectionManager::publish_zone_status(const std::string& status) {
 }
 
 void ZoneDetectionManager::on_diagnostic_timer() {
+    geometry_msgs::msg::Pose ar4_pose;
+    geometry_msgs::msg::Pose abb_pose;
+    bool poses_valid = false;
+
     // 1. Fetch live poses from the simulation
     try {
         // AR4 live tracking
-        auto t_ar4 = tf_buffer_->lookupTransform("world", "ar4_ee_link", tf2::TimePointZero);
-        geometry_msgs::msg::Pose ar4_pose;
+        auto t_ar4 = tf_buffer_->lookupTransform("base_link", "ar4_ee_link", tf2::TimePointZero);
         ar4_pose.position.x = t_ar4.transform.translation.x;
         ar4_pose.position.y = t_ar4.transform.translation.y;
         ar4_pose.position.z = t_ar4.transform.translation.z;
         ar4_current_zone_.store(get_zone_type(ar4_pose));
 
         // ABB live tracking
-        auto t_abb = tf_buffer_->lookupTransform("world", "tool0", tf2::TimePointZero);
-        geometry_msgs::msg::Pose abb_pose;
+        auto t_abb = tf_buffer_->lookupTransform("base_link", "tool0", tf2::TimePointZero);
         abb_pose.position.x = t_abb.transform.translation.x;
         abb_pose.position.y = t_abb.transform.translation.y;
         abb_pose.position.z = t_abb.transform.translation.z;
         abb_current_zone_.store(get_zone_type(abb_pose));
 
+        poses_valid = true;
+
     } catch (const tf2::TransformException & ex) {
-        // Silently fail if simulation isn't running yet to avoid log spam
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Zone TF Error: %s", ex.what());
+        return;
     }
 
-    // 2. Convert Zone ENUMS to string
+    // 2. CHECK FOR COLLISION RISK & PRINT DISTANCE
+    if (poses_valid) {
+        // Calculate and print the live distance
+        double separation = calculate_distance(ar4_pose, abb_pose);
+        RCLCPP_INFO(get_logger(), "Live Arm Separation: %.3f meters", separation);
+
+        if (check_collision_risk(ar4_pose, abb_pose)) {
+            publish_zone_status("COLLISION_WARNING");
+            return; // Halt normal output
+        }
+    }
+
+    // 3. Convert Zone ENUMS to string
     ZoneType ar4_zone = ar4_current_zone_.load();
     ZoneType abb_zone = abb_current_zone_.load();
 
@@ -189,7 +206,7 @@ void ZoneDetectionManager::on_diagnostic_timer() {
     std::string abb_zone_str = (abb_zone == ZoneType::SAFE_ZONE) ? "SAFE" :
                                (abb_zone == ZoneType::APPROACH_ZONE) ? "APPROACH" : "HANDOVER";
 
-    // 3. Publish the live status
+    // 4. Publish the live status
     publish_zone_status("AR4: " + ar4_zone_str + " | ABB: " + abb_zone_str);
 }
 

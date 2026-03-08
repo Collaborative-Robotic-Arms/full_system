@@ -29,6 +29,7 @@ from std_srvs.srv import SetBool
 
 from tf2_ros import TransformException, Buffer, TransformListener
 from scipy.spatial.transform import Rotation as R
+from std_msgs.msg import String
 
 
 class HybridAssemblySupervisor(Node):
@@ -96,6 +97,18 @@ class HybridAssemblySupervisor(Node):
         self.in_handover_zone = False
         self.mtc_task_id = None
 
+        # --- E-STOP CONFIG ---
+        self.emergency_stop = False
+        self.ar4_active_goal_handle = None
+        self.abb_active_goal_handle = None
+        self.zone_sub = self.create_subscription(
+            String,
+            '/zone_status',
+            self.zone_status_callback,
+            10,
+            callback_group=self.cb_group
+        )
+
         self.get_logger().info('Hybrid Assembly Supervisor Initialized')
         self.timer = self.create_timer(1.0, self.state_machine_loop, callback_group=self.cb_group)
 
@@ -161,10 +174,10 @@ class HybridAssemblySupervisor(Node):
 
     async def get_current_arm_poses(self):
         try:
-            t_ar4 = self.tf_buffer.lookup_transform('world', 'ar4_tool_link', rclpy.time.Time())
+            t_ar4 = self.tf_buffer.lookup_transform('world', 'ar4_ee_link', rclpy.time.Time())
             self.ar4_current_pose = self.transform_stamped_to_pose(t_ar4)
             
-            t_abb = self.tf_buffer.lookup_transform('world', 'abb_tool_link', rclpy.time.Time())
+            t_abb = self.tf_buffer.lookup_transform('world', 'tool0', rclpy.time.Time())
             self.abb_current_pose = self.transform_stamped_to_pose(t_abb)
             return True
         except Exception as e:
@@ -282,6 +295,27 @@ class HybridAssemblySupervisor(Node):
     # SUPERVISOR STATE MACHINE WITH MTC INTEGRATION
     # ========================================================================
 
+    def zone_status_callback(self, msg):
+        """Listens to the C++ Zone Manager and triggers emergency stop"""
+        if "COLLISION_WARNING" in msg.data and not self.emergency_stop:
+            self.get_logger().error("🚨 ZONE MANAGER DETECTED COLLISION RISK! TRIGGERING E-STOP! 🚨")
+            self.emergency_stop = True
+            self.state = "EMERGENCY_STOP"
+            
+            # Immediately lock both workers
+            self.ar4_busy = True
+            self.abb_busy = True
+
+            # --- 🛑 INSTANTLY CANCEL ACTIVE MOTIONS 🛑 ---
+            if self.ar4_active_goal_handle is not None:
+                self.get_logger().error("🛑 Sending CANCEL request to AR4 Action Server!")
+                # Call directly, do not use create_task
+                self.ar4_active_goal_handle.cancel_goal_async() 
+            
+            if self.abb_active_goal_handle is not None:
+                self.get_logger().error("🛑 Sending CANCEL request to ABB Action Server!")
+                # Call directly, do not use create_task
+                self.abb_active_goal_handle.cancel_goal_async()
     async def state_machine_loop(self):
         self.timer.cancel()
         try:
@@ -712,15 +746,26 @@ class HybridAssemblySupervisor(Node):
             self.get_logger().error(f'Goal rejected')
             return None
 
+        # --- STORE GOAL HANDLE FOR CANCELLATION ---
+        if client == self.ar4_point_client:
+            self.ar4_active_goal_handle = goal_handle
+        elif client == self.abb_client:
+            self.abb_active_goal_handle = goal_handle
+
         result_future = goal_handle.get_result_async()
         result = await result_future
+
+        # --- CLEAR GOAL HANDLE ONCE FINISHED ---
+        if client == self.ar4_point_client and self.ar4_active_goal_handle == goal_handle:
+            self.ar4_active_goal_handle = None
+        elif client == self.abb_client and self.abb_active_goal_handle == goal_handle:
+            self.abb_active_goal_handle = None
 
         if result.status == GoalStatus.STATUS_SUCCEEDED:
             return result.result
         else:
             self.get_logger().error(f'Action failed with status: {result.status}')
             return None
-
     async def set_ar4_gripper(self, open_gripper: bool):
         """Control AR4 gripper"""
         if not self.gripper_client.wait_for_service(timeout_sec=2.0):

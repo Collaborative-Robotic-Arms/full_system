@@ -17,12 +17,10 @@ public:
   using GoalHandleMoveToPose = rclcpp_action::ServerGoalHandle<MoveToPose>;
 
   PoseCommanderAction() : Node("ar4_pose_commander") {
-    // Standard initialization that doesn't require shared_from_this()
     tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   }
 
-  // Moved MoveGroup and Action Server initialization here
   void init() {
     move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(shared_from_this(), "ar_manipulator");
     
@@ -47,10 +45,17 @@ private:
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
   }
 
+  // =========================================================================
+  // 🛑 E-STOP CANCEL HANDLER
+  // =========================================================================
   rclcpp_action::CancelResponse handle_cancel(const std::shared_ptr<GoalHandleMoveToPose> goal_handle) {
     (void)goal_handle;
-    RCLCPP_INFO(this->get_logger(), "Received request to cancel goal");
-    move_group_->stop();
+    RCLCPP_ERROR(this->get_logger(), "🛑 AR4 EMERGENCY CANCEL RECEIVED! HALTING ARM!");
+    
+    if (move_group_) {
+        move_group_->stop(); // Halt MoveIt execution
+    }
+    
     return rclcpp_action::CancelResponse::ACCEPT;
   }
 
@@ -58,6 +63,9 @@ private:
     std::thread{std::bind(&PoseCommanderAction::execute, this, std::placeholders::_1), goal_handle}.detach();
   }
 
+  // =========================================================================
+  // EXECUTION LOGIC WITH CANCELLATION CHECKS
+  // =========================================================================
   void execute(const std::shared_ptr<GoalHandleMoveToPose> goal_handle) {
     const auto goal = goal_handle->get_goal();
     auto result = std::make_shared<MoveToPose::Result>();
@@ -68,21 +76,44 @@ private:
       move_group_->setNamedTarget("home");
     } else {
       geometry_msgs::msg::PoseStamped target_stamped;
-      target_stamped.header.frame_id = "base_link"; // Standardized frame name
+      target_stamped.header.frame_id = "base_link";
       target_stamped.header.stamp = this->get_clock()->now();
       target_stamped.pose = goal->target_pose; 
 
       move_group_->setPoseTarget(target_stamped);
     }
 
+    // 1. Plan
     moveit::planning_interface::MoveGroupInterface::Plan my_plan;
     bool success = (move_group_->plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
 
     if (success) {
-      move_group_->execute(my_plan);
-      result->success = true;
-      goal_handle->succeed(result);
-      RCLCPP_INFO(this->get_logger(), "Execution successful");
+      // Check if we were canceled during planning
+      if (goal_handle->is_canceling()) {
+        result->success = false;
+        goal_handle->canceled(result);
+        return;
+      }
+
+      // 2. Execute and capture the actual result
+      auto exec_code = move_group_->execute(my_plan);
+
+      // 3. Process the result based on cancellation or success
+      if (goal_handle->is_canceling()) {
+        RCLCPP_WARN(this->get_logger(), "AR4 execution was aborted mid-trajectory.");
+        result->success = false;
+        goal_handle->canceled(result);
+      } 
+      else if (exec_code == moveit::core::MoveItErrorCode::SUCCESS) {
+        result->success = true;
+        goal_handle->succeed(result);
+        RCLCPP_INFO(this->get_logger(), "Execution successful");
+      } 
+      else {
+        result->success = false;
+        goal_handle->abort(result);
+        RCLCPP_ERROR(this->get_logger(), "Execution failed in MoveIt.");
+      }
     } else {
       result->success = false;
       goal_handle->abort(result);
@@ -94,7 +125,6 @@ private:
 
 int main(int argc, char ** argv) {
   rclcpp::init(argc, argv);
-  // Create the shared_ptr first, then call init()
   auto node = std::make_shared<point_control::PoseCommanderAction>();
   node->init(); 
   rclcpp::spin(node);

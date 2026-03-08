@@ -108,7 +108,19 @@ private:
 
     rclcpp_action::CancelResponse handle_cancel(const std::shared_ptr<GoalHandleExecuteTask>)
     {
-        RCLCPP_INFO(this->get_logger(), "Cancel requested");
+        RCLCPP_ERROR(this->get_logger(), "🛑 EMERGENCY CANCEL RECEIVED! HALTING ARM!");
+        
+        // 1. Stop MoveIt if it is currently planning
+        if (move_group_) {
+            move_group_->stop();
+        }
+
+        // 2. ACTUALLY STOP THE ROBOT MID-MOTION
+        // Cancel the goal we sent to the trajectory controller
+        if (arm_driver_client_) {
+            arm_driver_client_->async_cancel_all_goals();
+        }
+
         return rclcpp_action::CancelResponse::ACCEPT;
     }
 
