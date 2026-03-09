@@ -52,13 +52,30 @@ private:
     (void)goal_handle;
     RCLCPP_ERROR(this->get_logger(), "🛑 AR4 EMERGENCY CANCEL RECEIVED! HALTING ARM!");
     
+    // 1. Tell MoveIt to stop tracking/planning
     if (move_group_) {
-        move_group_->stop(); // Halt MoveIt execution
+        move_group_->stop(); 
     }
+
+    // 2. PHYSICAL FREEZE: Clear the hardware controller queue
+    // We create a temporary publisher to send an empty trajectory
+    auto stop_pub = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
+        "/ar4_controller/joint_trajectory", 10);
+    
+    trajectory_msgs::msg::JointTrajectory empty_msg;
+    empty_msg.header.stamp = this->get_clock()->now();
+    
+    // Standard AR4 joint names
+    empty_msg.joint_names = {
+        "joint_1", "joint_2", "joint_3", 
+        "joint_4", "joint_5", "joint_6"
+    };
+    
+    // Sending the message with joint names but NO points forces the controller to stop
+    stop_pub->publish(empty_msg);
     
     return rclcpp_action::CancelResponse::ACCEPT;
   }
-
   void handle_accepted(const std::shared_ptr<GoalHandleMoveToPose> goal_handle) {
     std::thread{std::bind(&PoseCommanderAction::execute, this, std::placeholders::_1), goal_handle}.detach();
   }
@@ -83,32 +100,34 @@ private:
       move_group_->setPoseTarget(target_stamped);
     }
 
-    // 1. Plan
+    // 1. Plan the motion
     moveit::planning_interface::MoveGroupInterface::Plan my_plan;
-    bool success = (move_group_->plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+    bool plan_success = (move_group_->plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
 
-    if (success) {
-      // Check if we were canceled during planning
+    if (plan_success) {
+      // Check if we were already canceled while planning
       if (goal_handle->is_canceling()) {
         result->success = false;
         goal_handle->canceled(result);
         return;
       }
 
-      // 2. Execute and capture the actual result
+      // 2. Execute and capture the ACTUAL MoveIt return code
       auto exec_code = move_group_->execute(my_plan);
 
-      // 3. Process the result based on cancellation or success
+      // 3. Check if the execution was stopped by handle_cancel()
       if (goal_handle->is_canceling()) {
-        RCLCPP_WARN(this->get_logger(), "AR4 execution was aborted mid-trajectory.");
+        RCLCPP_WARN(this->get_logger(), "🛑 AR4 execution HALTED mid-trajectory.");
         result->success = false;
         goal_handle->canceled(result);
       } 
+      // Check for normal success
       else if (exec_code == moveit::core::MoveItErrorCode::SUCCESS) {
         result->success = true;
         goal_handle->succeed(result);
         RCLCPP_INFO(this->get_logger(), "Execution successful");
       } 
+      // Handle hardware/MoveIt failures
       else {
         result->success = false;
         goal_handle->abort(result);

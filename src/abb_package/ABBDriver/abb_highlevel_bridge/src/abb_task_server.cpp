@@ -108,17 +108,24 @@ private:
 
     rclcpp_action::CancelResponse handle_cancel(const std::shared_ptr<GoalHandleExecuteTask>)
     {
-        RCLCPP_ERROR(this->get_logger(), "🛑 EMERGENCY CANCEL RECEIVED! HALTING ARM!");
+        RCLCPP_ERROR(this->get_logger(), "🛑 ABB EMERGENCY CANCEL RECEIVED! HALTING ARM!");
         
-        // 1. Stop MoveIt if it is currently planning
         if (move_group_) {
             move_group_->stop();
         }
 
-        // 2. ACTUALLY STOP THE ROBOT MID-MOTION
-        // Cancel the goal we sent to the trajectory controller
+        // --- NEW: Physical Freeze for ABB ---
+        // Force the trajectory controller to drop the current path
         if (arm_driver_client_) {
             arm_driver_client_->async_cancel_all_goals();
+            
+            // Extra safety: Publish empty trajectory to override hardware queue
+            auto stop_pub = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
+                "/irb120_trajectory_controller/joint_trajectory", 10);
+            trajectory_msgs::msg::JointTrajectory empty_msg;
+            empty_msg.header.stamp = this->get_clock()->now();
+            empty_msg.joint_names = {"joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"};
+            stop_pub->publish(empty_msg);
         }
 
         return rclcpp_action::CancelResponse::ACCEPT;

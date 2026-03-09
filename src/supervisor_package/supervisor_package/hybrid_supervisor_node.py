@@ -244,14 +244,14 @@ class HybridAssemblySupervisor(Node):
         self.get_logger().info(f'[PARALLEL] ABB finished brick {brick.id}')
         return True
     async def execute_ar4_worker(self, brick):
-        """Dedicated sequence for AR4 arm - runs independently of ABB"""
+        """Dedicated sequence for AR4 arm - now respects E-Stop"""
         self.get_logger().info(f'[AR4 WORKER] Starting sequence for brick {brick.id}')
         
-        # Grasp Pipeline
+        # 1. Grasp Pipeline - Exit if E-Stop active
         req = GetGrasp.Request()
         req.brick_index = str(brick.id)
         res = await self.grasp_pipeline_client.call_async(req)
-        if not res or not res.success:
+        if not res or not res.success or self.emergency_stop:
             self.ar4_busy = False
             return
         
@@ -259,25 +259,32 @@ class HybridAssemblySupervisor(Node):
         grasp.pose = self.transform_pose_to_abb(grasp.pose)
         grasp.pose.position.z = 0.22 
         
-        # Pick & Place
+        # 2. Approach - Exit if action fails or E-Stop active
         await self.set_ar4_gripper(True)
+        if self.emergency_stop: return
         goal = MoveToPose.Goal(target_pose=grasp.pose, strategy="APPROACH_OFFSET")
-        await self.send_action_goal(self.ar4_point_client, goal)
-        
+        result = await self.send_action_goal(self.ar4_point_client, goal)
+        if result is None or self.emergency_stop: return # <--- CRITICAL STOP
+
+        # 3. Grasp - Exit if action fails or E-Stop active
         await self.set_ar4_gripper(False)
+        if self.emergency_stop: return
         goal.strategy = "GRASP"
-        await self.send_action_goal(self.ar4_point_client, goal)
+        result = await self.send_action_goal(self.ar4_point_client, goal)
+        if result is None or self.emergency_stop: return # <--- CRITICAL STOP
         
+        # 4. Place - Exit if action fails or E-Stop active
         plc_goal = MoveToPose.Goal(target_pose=brick.place_pose, strategy="PLACE")
         plc_goal.target_pose.position.z = 0.22 
-        await self.send_action_goal(self.ar4_point_client, plc_goal)
+        result = await self.send_action_goal(self.ar4_point_client, plc_goal)
+        if result is None or self.emergency_stop: return # <--- THIS PREVENTS THE HOME MOVE
         
-        # Retract
+        # 5. Retract (Only reachable if NO collision occurred)
         await self.send_action_goal(self.ar4_point_client, MoveToPose.Goal(strategy="HOME"))
 
-        self.ar4_busy = False # Signal that AR4 is free
+        self.ar4_busy = False 
         self.get_logger().info(f'[AR4 WORKER] Brick {brick.id} complete.')
-
+        
     async def execute_abb_worker(self, brick):
         """Dedicated sequence for ABB arm - runs independently of AR4"""
         self.get_logger().info(f'[ABB WORKER] Starting sequence for brick {brick.id}')
