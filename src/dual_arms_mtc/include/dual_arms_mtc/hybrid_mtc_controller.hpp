@@ -18,6 +18,7 @@
 // Custom messages (you may need to create these)
 #include <dual_arms_msgs/action/execute_task.hpp>
 #include <dual_arms_msgs/srv/get_handover_zone.hpp>
+#include <dual_arms_msgs/srv/resolve_collision.hpp>
 
 // Custom headers
 #include <dual_arms_mtc/control_strategy.hpp>
@@ -54,6 +55,17 @@ public:
     void switch_to_mtc_mode();
     void switch_to_multithreaded_mode();
     ControlMode get_current_mode() const;
+
+    // ========================================================================
+    // DYNAMIC COLLISION RESOLUTION - NEW
+    // ========================================================================
+    void handle_resolve_collision(
+        const std::shared_ptr<dual_arms_msgs::srv::ResolveCollision::Request> request,
+        std::shared_ptr<dual_arms_msgs::srv::ResolveCollision::Response> response);
+
+    moveit::task_constructor::Task create_safe_resolution_task(
+        const geometry_msgs::msg::Pose& ar4_target,
+        const geometry_msgs::msg::Pose& abb_target);
 
     // ========================================================================
     // OPERATION TYPE MANAGEMENT - NEW FOR SEQUENTIAL/PARALLEL CONTROL
@@ -177,6 +189,8 @@ private:
     rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr abb_gripper_client_;
     rclcpp::Client<dual_arms_msgs::srv::GetHandoverZone>::SharedPtr zone_client_;
 
+    // MTC Resolution Service Server
+    rclcpp::Service<dual_arms_msgs::srv::ResolveCollision>::SharedPtr safe_resolution_service_;
     // Methods
     void initialize_solvers();
     void load_handover_zone_config();

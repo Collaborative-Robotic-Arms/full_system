@@ -218,7 +218,8 @@ def generate_launch_description():
             moveit_controllers_yaml_content,
             planning_scene_monitor_parameters,
             {
-                "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager"
+                "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager",
+                "capabilities": "move_group/ExecuteTaskSolutionCapability"
             },
             {"use_sim_time": True},
         ],

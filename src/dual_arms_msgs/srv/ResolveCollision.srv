@@ -1,0 +1,7 @@
+# Request: Where were the arms trying to go when they got frozen?
+geometry_msgs/Pose ar4_target_pose
+geometry_msgs/Pose abb_target_pose
+---
+# Response
+bool success
+string message

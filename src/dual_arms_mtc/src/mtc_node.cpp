@@ -2,7 +2,8 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <moveit/planning_scene/planning_scene.h>
 #include <rclcpp_action/rclcpp_action.hpp>
-
+#include <moveit/move_group_interface/move_group_interface.h>
+#include <moveit_task_constructor_msgs/msg/solution.hpp>
 namespace dual_arms_mtc {
 
 HybridMTCController::HybridMTCController()
@@ -37,7 +38,11 @@ void HybridMTCController::init() {
     // Create service clients for grippers
     ar4_gripper_client_ = create_client<std_srvs::srv::SetBool>("ar4_gripper/set");
     abb_gripper_client_ = create_client<std_srvs::srv::SetBool>("abb_gripper/set");
-
+    // Initialize the Collision Resolution Service
+    safe_resolution_service_ = create_service<dual_arms_msgs::srv::ResolveCollision>(
+        "mtc_controller/resolve_collision",
+        std::bind(&HybridMTCController::handle_resolve_collision, this, std::placeholders::_1, std::placeholders::_2)
+    );
     RCLCPP_INFO(get_logger(), "Hybrid MTC Controller initialized successfully");
 }
 
@@ -690,8 +695,90 @@ void HybridMTCController::on_task_failed(const std::string& reason) {
     task_status_ = "FAILED: " + reason;
     RCLCPP_ERROR(get_logger(), "Task failed: %s", reason.c_str());
 }
+void HybridMTCController::handle_resolve_collision(
+    const std::shared_ptr<dual_arms_msgs::srv::ResolveCollision::Request> request,
+    std::shared_ptr<dual_arms_msgs::srv::ResolveCollision::Response> response) {
+    
+    RCLCPP_WARN(get_logger(), "MTC TAKING OVER: Resolving dual-arm proximity conflict...");
+    switch_to_mtc_mode();
 
+    try {
+        auto task = create_safe_resolution_task(request->ar4_target_pose, request->abb_target_pose);
+
+        if (!task.plan(2)) { // Allow MTC 2 attempts to find a safe route
+            response->success = false;
+            response->message = "MTC Failed to find a safe resolution path.";
+            RCLCPP_ERROR(get_logger(), "%s", response->message.c_str());
+            switch_to_multithreaded_mode();
+            return;
+        }
+
+        RCLCPP_INFO(get_logger(), "Safe path found. Executing 12-DOF synchronized trajectory...");
+        
+        // 1-Line Execution using the standard MTC Action Server
+        auto result = task.execute(*task.solutions().front());
+        
+        if (result.val == moveit_msgs::msg::MoveItErrorCodes::SUCCESS) {
+            response->success = true;
+            response->message = "Conflict resolved safely.";
+            RCLCPP_INFO(get_logger(), "✅ MTC Resolution Complete.");
+        } else {
+            response->success = false;
+            response->message = "Execution failed.";
+            RCLCPP_ERROR(get_logger(), "❌ Execution Failed!");
+        }
+
+    } catch (const std::exception& e) {
+        response->success = false;
+        response->message = std::string("MTC Exception: ") + e.what();
+    }
+    
+    switch_to_multithreaded_mode();
+}
+Task HybridMTCController::create_safe_resolution_task(
+    const geometry_msgs::msg::Pose& ar4_target,
+    const geometry_msgs::msg::Pose& abb_target) {
+
+    Task t;
+    t.stages()->setName("Safe Conflict Resolution");
+    t.loadRobotModel(shared_from_this(), "robot_description");
+
+    // --- THE FIX: Create a fresh pipeline locally for THIS specific task ---
+    // This prevents the "Robot model isn't the same" exception on repeated collisions.
+    auto local_pipeline = std::make_shared<solvers::PipelinePlanner>(shared_from_this(), "ompl");
+    // --- THE FIX: ADD STRICT TIMEOUTS TO PREVENT CPU FREEZING ---
+    local_pipeline->setProperty("timeout", 2.0); // Stop doing math after 2 seconds!
+
+    // Stage 0: Grab current frozen state
+    auto current_state = std::make_unique<stages::CurrentState>("current_state");
+    t.add(std::move(current_state));
+
+    // Stage 1: Move AR4 to safety (ABB is treated as a static obstacle)
+    auto move_ar4 = std::make_unique<stages::MoveTo>("move_ar4_safe", local_pipeline);
+    move_ar4->setGroup("ar_manipulator");
+    move_ar4->setIKFrame("ar4_ee_link");
+    
+    geometry_msgs::msg::PoseStamped ar4_stamped;
+    ar4_stamped.header.frame_id = "base_link";
+    ar4_stamped.pose = ar4_target;
+    move_ar4->setGoal(ar4_stamped);
+    t.add(std::move(move_ar4));
+
+    // Stage 2: Move ABB to safety (AR4's new position is treated as a static obstacle)
+    auto move_abb = std::make_unique<stages::MoveTo>("move_abb_safe", local_pipeline);
+    move_abb->setGroup("irb120_arm");
+    move_abb->setIKFrame("tool0");
+    
+    geometry_msgs::msg::PoseStamped abb_stamped;
+    abb_stamped.header.frame_id = "base_link";
+    abb_stamped.pose = abb_target;
+    move_abb->setGoal(abb_stamped);
+    t.add(std::move(move_abb));
+
+    return t;
+}
 }  // namespace dual_arms_mtc
+
 
 // ============================================================================
 // MAIN ENTRY POINT
