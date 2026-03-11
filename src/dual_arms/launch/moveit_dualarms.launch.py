@@ -219,9 +219,9 @@ def generate_launch_description():
             planning_scene_monitor_parameters,
             {
                 "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager",
-                "capabilities": "move_group/ExecuteTaskSolutionCapability"
+                "capabilities": "move_group/ExecuteTaskSolutionCapability", # <--- MERGED HERE
+                "use_sim_time": True,
             },
-            {"use_sim_time": True},
         ],
     )
 

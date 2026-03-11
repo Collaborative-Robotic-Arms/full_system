@@ -59,7 +59,7 @@ class HybridAssemblySupervisor(Node):
         self.camera_client = self.create_client(DetectBricks, 'detect_bricks', callback_group=self.cb_group)
         self.grasp_pipeline_client = self.create_client(GetGrasp, 'grasp/get_grasp_point', callback_group=self.cb_group)
         self.gripper_client = self.create_client(SetBool, 'ar4_gripper/set', callback_group=self.cb_group)
-        
+        self.abb_gripper_client = self.create_client(SetBool, 'abb_gripper/set', callback_group=self.cb_group) 
         # MTC-specific service
         self.zone_client = self.create_client(GetHandoverZone, 'zone_detection/get_handover_zone', callback_group=self.cb_group)
         self.mtc_handover_client = self.create_client(ExecuteMTCHandover, 'mtc_controller/execute_handover', callback_group=self.cb_group)
@@ -70,10 +70,11 @@ class HybridAssemblySupervisor(Node):
         self.abb_active_target = None
 
         # --- ACTION CLIENTS ---
-        self.ar4_point_client = ActionClient(self, MoveToPose, 'ar4_point_control', callback_group=self.cb_group)
+        self.ar4_client = ActionClient(self, ExecuteTask, 'ar4_control', callback_group=self.cb_group)
         self.abb_client = ActionClient(self, ExecuteTask, 'abb_control', callback_group=self.cb_group)
 
         # --- INTERNAL STATE ---
+        self.mtc_active = False
         self.state = "INIT"
         self.current_brick = None
         self.assembly_queue = []
@@ -96,6 +97,18 @@ class HybridAssemblySupervisor(Node):
         self.ar4_timer = None
         self.abb_timer = None
 
+        # --- STAGE AND EXECUTION TRACKING (Update 1) ---
+        self.ar4_stage = "IDLE"
+        self.abb_stage = "IDLE"
+        self.ar4_cancelled = False
+        self.abb_cancelled = False
+        self.ar4_goal_handle = None
+        self.abb_goal_handle = None
+        self.ar4_current_brick = None
+        self.abb_current_brick = None
+        self.ar4_recovering = False
+        self.abb_recovering = False
+
         # MTC state tracking
         self.control_mode = "MULTITHREADED"  # MULTITHREADED or MTC_HANDOVER
         self.in_handover_zone = False
@@ -103,8 +116,6 @@ class HybridAssemblySupervisor(Node):
 
         # --- E-STOP CONFIG ---
         self.emergency_stop = False
-        self.ar4_active_goal_handle = None
-        self.abb_active_goal_handle = None
         self.zone_sub = self.create_subscription(
             String,
             '/zone_status',
@@ -131,6 +142,42 @@ class HybridAssemblySupervisor(Node):
         
         distance = (dx**2 + dy**2 + dz**2)**0.5
         return distance <= self.handover_trigger_distance
+    
+    def trigger_mtc_resolution(self):
+        self.mtc_active = True
+        
+        # 1. Kill the independent Task Servers so they stop sending commands
+        self.stop_parallel_workers() 
+
+        # 2. Prepare the goal with the FINAL place poses from your brick data
+        goal_msg = ExecuteTask.Goal()
+        goal_msg.ar4_target = self.current_brick.ar4_place_pose
+        goal_msg.abb_target = self.current_brick.abb_place_pose
+
+        # 3. Send the goal and wait for the RESULT callback
+        self.get_logger().info("MTC taking over the full 12-DOF path to the targets...")
+        self.mtc_client.send_goal_async(goal_msg).add_done_callback(self.mtc_result_callback)
+
+    def mtc_result_callback(self, future):
+        # Once MTC reports success, reset the flag and move to the next task
+        self.get_logger().info("✅ MTC Resolution Complete. Poses reached.")
+        self.mtc_active = False
+        self.state = "PROCESS_NEXT_BRICK"
+
+    def stop_parallel_workers(self):
+        """Cleanly halts the async timers and clears busy flags for a fresh start."""
+        if self.ar4_timer:
+            self.ar4_timer.cancel()
+            self.ar4_timer = None
+        if self.abb_timer:
+            self.abb_timer.cancel()
+            self.abb_timer = None
+        
+        # Reset the logic locks so they can be re-dispatched safely
+        self.ar4_busy = False
+        self.abb_busy = False
+        self.ar4_parallel_done = False
+        self.abb_parallel_done = False
 
     async def switch_control_mode(self, new_mode):
         """Switch between multithreaded and MTC control modes"""
@@ -178,10 +225,10 @@ class HybridAssemblySupervisor(Node):
 
     async def get_current_arm_poses(self):
         try:
-            t_ar4 = self.tf_buffer.lookup_transform('base_link', 'ar4_ee_link', rclpy.time.Time())
+            t_ar4 = self.tf_buffer.lookup_transform('abb_table', 'ar4_ee_link', rclpy.time.Time())
             self.ar4_current_pose = self.transform_stamped_to_pose(t_ar4)
 
-            t_abb = self.tf_buffer.lookup_transform('base_link', 'tool0', rclpy.time.Time())
+            t_abb = self.tf_buffer.lookup_transform('abb_table', 'tool0', rclpy.time.Time())
             self.abb_current_pose = self.transform_stamped_to_pose(t_abb)
             return True
         except Exception as e:
@@ -199,63 +246,81 @@ class HybridAssemblySupervisor(Node):
         req.brick_index = str(brick.id)
         res = await self.grasp_pipeline_client.call_async(req)
         if not res.success: return False
-        while self.emergency_stop: await self.ros_sleep(0.1)
+        if self.emergency_stop or self.ar4_cancelled: return False
 
         grasp = res.grasp_point
         grasp.pose = self.transform_pose_to_abb(grasp.pose)
         grasp.pose.position.z = 0.22 
         
-        await self.set_ar4_gripper(True)
-        while self.emergency_stop: await self.ros_sleep(0.1)
-
-        app_goal = MoveToPose.Goal()
-        app_goal.target_pose = grasp.pose
-        app_goal.strategy = "APPROACH_OFFSET"
-        result = await self.send_action_goal(self.ar4_point_client, app_goal)
-        if result is None: return False
+        # --- UPDATE STAGE BEFORE GOAL (Update 2) ---
+        self.ar4_stage = "PICK"
+        pick_goal = ExecuteTask.Goal(task_type="PICK", target_pose=grasp.pose)
+        result = await self.send_action_goal(self.ar4_client, pick_goal)
         
-        await self.set_ar4_gripper(False)
-        while self.emergency_stop: await self.ros_sleep(0.1)
-
-        grs_goal = MoveToPose.Goal()
-        grs_goal.target_pose = grasp.pose
-        grs_goal.strategy = "GRASP"
-        result = await self.send_action_goal(self.ar4_point_client, grs_goal)
+        # --- STOP WORKERS IF CANCEL HAPPENS (Update 5) ---
+        if self.ar4_cancelled:
+            self.get_logger().warn("AR4 execution cancelled by supervisor")
+            return False
+            
         if result is None: return False
-        
-        plc_goal = MoveToPose.Goal()
-        plc_goal.target_pose = brick.place_pose
+
+        if self.emergency_stop or self.ar4_cancelled: return False
+        # --- UPDATE STAGE BEFORE GOAL (Update 2) ---
+        self.ar4_stage = "PLACE"
+        plc_goal = ExecuteTask.Goal(task_type="PLACE", target_pose=brick.place_pose)
         plc_goal.target_pose.position.z = 0.26 
-        plc_goal.strategy = "PLACE"
-        result = await self.send_action_goal(self.ar4_point_client, plc_goal)
-        if result is None: return False
+        result = await self.send_action_goal(self.ar4_client, plc_goal)
         
-        retract_goal = MoveToPose.Goal()
-        retract_goal.strategy = "HOME"
-        await self.send_action_goal(self.ar4_point_client, retract_goal)
+        # --- STOP WORKERS IF CANCEL HAPPENS (Update 5) ---
+        if self.ar4_cancelled:
+            self.get_logger().warn("AR4 execution cancelled by supervisor")
+            return False
+            
+        if result is None: return False
 
+        # --- UPDATE STAGE ON SUCCESS (Update 2) ---
+        self.ar4_stage = "DONE"
         self.get_logger().info(f'[PARALLEL] AR4 finished brick {brick.id}')
         return True
     
     async def execute_abb_full_sequence(self, brick):
         self.get_logger().info(f'[PARALLEL] ABB starting sequence for brick {brick.id}')
-        while self.emergency_stop: await self.ros_sleep(0.1)
-        
+        if self.emergency_stop or self.abb_cancelled: return False
+
+        # --- UPDATE STAGE BEFORE GOAL (Update 2) ---
+        self.abb_stage = "PICK"
         pick_goal = ExecuteTask.Goal()
         pick_goal.task_type = "PICK"
         pick_goal.target_pose = brick.pickup_pose 
         result = await self.send_action_goal(self.abb_client, pick_goal)
+        
+        # --- STOP WORKERS IF CANCEL HAPPENS (Update 5) ---
+        if self.abb_cancelled:
+            self.get_logger().warn("ABB execution cancelled by supervisor")
+            return False
+            
         if result is None: return False
         
+        # --- UPDATE STAGE BEFORE GOAL (Update 2) ---
+        self.abb_stage = "PLACE"
         plc_goal = ExecuteTask.Goal()
         plc_goal.task_type = "PLACE"
         plc_goal.target_pose = brick.place_pose
         plc_goal.target_pose.position.z = 0.24 
         result = await self.send_action_goal(self.abb_client, plc_goal)
+        
+        # --- STOP WORKERS IF CANCEL HAPPENS (Update 5) ---
+        if self.abb_cancelled:
+            self.get_logger().warn("ABB execution cancelled by supervisor")
+            return False
+            
         if result is None: return False
         
+        # --- UPDATE STAGE ON SUCCESS (Update 2) ---
+        self.abb_stage = "DONE"
         self.get_logger().info(f'[PARALLEL] ABB finished brick {brick.id}')
         return True
+
     async def execute_ar4_worker(self, brick):
         self.get_logger().info(f'[AR4 WORKER] Starting sequence for brick {brick.id}')
         
@@ -266,74 +331,94 @@ class HybridAssemblySupervisor(Node):
             self.ar4_busy = False
             return
 
-        while self.emergency_stop: await self.ros_sleep(0.1)
-
+        if self.emergency_stop or self.ar4_cancelled: 
+            self.ar4_busy = False
+            return
+        
         grasp = res.grasp_point
         grasp.pose = self.transform_pose_to_abb(grasp.pose)
         grasp.pose.position.z = 0.22 
         
-        await self.set_ar4_gripper(True)
-        while self.emergency_stop: await self.ros_sleep(0.1)
-
-        goal = MoveToPose.Goal(target_pose=grasp.pose, strategy="APPROACH_OFFSET")
-        result = await self.send_action_goal(self.ar4_point_client, goal)
-        if result is None: return # Only dies on real failures
-
-        await self.set_ar4_gripper(False)
-        while self.emergency_stop: await self.ros_sleep(0.1)
-
-        goal.strategy = "GRASP"
-        result = await self.send_action_goal(self.ar4_point_client, goal)
-        if result is None: return
+        # --- UPDATE STAGE BEFORE GOAL (Update 2) ---
+        self.ar4_stage = "PICK"
+        pick_goal = ExecuteTask.Goal(task_type="PICK", target_pose=grasp.pose)
+        result = await self.send_action_goal(self.ar4_client, pick_goal)
         
-        plc_goal = MoveToPose.Goal(target_pose=brick.place_pose, strategy="PLACE")
+        # --- STOP WORKERS IF CANCEL HAPPENS (Update 5) ---
+        if self.ar4_cancelled:
+            self.get_logger().warn("AR4 execution cancelled by supervisor")
+            return
+            
+
+        if result is None or self.ar4_cancelled: 
+            self.ar4_busy = False
+            return
+        
+        # --- UPDATE STAGE BEFORE GOAL (Update 2) ---
+        self.ar4_stage = "PLACE"
+        plc_goal = ExecuteTask.Goal(task_type="PLACE", target_pose=brick.place_pose)
         plc_goal.target_pose.position.z = 0.22 
-        result = await self.send_action_goal(self.ar4_point_client, plc_goal)
-        if result is None: return 
+        result = await self.send_action_goal(self.ar4_client, plc_goal)
         
-        await self.send_action_goal(self.ar4_point_client, MoveToPose.Goal(strategy="HOME"))
+        # --- STOP WORKERS IF CANCEL HAPPENS (Update 5) ---
+        if self.ar4_cancelled:
+            self.get_logger().warn("AR4 execution cancelled by supervisor")
+            return
 
+        # --- UPDATE STAGE ON SUCCESS (Update 2) ---
+        self.ar4_stage = "DONE"
         self.ar4_busy = False 
-        self.get_logger().info(f'[AR4 WORKER] Brick {brick.id} complete.')
+        self.get_logger().info(f'[AR4 WORKER] Task complete and arm homed.')
 
     async def execute_abb_worker(self, brick):
         self.get_logger().info(f'[ABB WORKER] Starting sequence for brick {brick.id}')
-        while self.emergency_stop: await self.ros_sleep(0.1)
-
+        if self.emergency_stop or self.abb_cancelled:
+            self.abb_busy = False
+            return
+            
+        self.abb_stage = "PICK"
         result = await self.send_action_goal(self.abb_client, ExecuteTask.Goal(task_type="PICK", target_pose=brick.pickup_pose))
-        if result is None: return
         
+        # --- FIX: RELEASE LOCK ON DEATH ---
+        if result is None or self.abb_cancelled:
+            self.get_logger().warn("ABB execution cancelled or failed")
+            self.abb_busy = False # <-- Make sure this is here!
+            return
+        
+        self.abb_stage = "PLACE"
         plc_goal = ExecuteTask.Goal(task_type="PLACE", target_pose=brick.place_pose)
         plc_goal.target_pose.position.z = 0.24 
         result = await self.send_action_goal(self.abb_client, plc_goal)
-        if result is None: return
         
+        # --- FIX: RELEASE LOCK ON DEATH ---
+        if result is None or self.emergency_stop or self.abb_cancelled:
+            self.get_logger().warn("ABB execution cancelled or failed")
+            self.abb_busy = False # <-- Make sure this is here!
+            return
+        
+        self.abb_stage = "DONE"
         self.abb_busy = False 
-        self.get_logger().info(f'[ABB WORKER] Brick {brick.id} complete.')
+        self.get_logger().info(f'[ABB WORKER] Task complete and arm homed.')
+
     # ========================================================================
     # SUPERVISOR STATE MACHINE WITH MTC INTEGRATION
     # ========================================================================
 
     def zone_status_callback(self, msg):
-        """Listens to the C++ Zone Manager and triggers MTC fallback if too close"""
-        if "COLLISION_WARNING" in msg.data and not self.emergency_stop:
-            self.get_logger().warn("⚠️ PROXIMITY ALERT! Arms too close. Switching to MTC for safe trajectory!")
+        if "COLLISION_WARNING" in msg.data and not self.emergency_stop and not self.mtc_active and not self.ar4_recovering and not self.abb_recovering:
+            # NEW: Log exact state upon entry
+            self.get_logger().warn(f"⚠️ PROXIMITY ALERT! Interrupting AR4 in [{self.ar4_stage}] and ABB in [{self.abb_stage}]")
             
-            # Save the exact state we were in so we can return to it after MTC
-            self.pre_estop_state = self.state
+            self.mtc_active = True
             self.emergency_stop = True
+            self.ar4_cancelled = True
+            self.abb_cancelled = True
             
-            # --- 🛑 INSTANTLY FREEZE CURRENT MOTIONS 🛑 ---
-            if self.ar4_active_goal_handle is not None:
-                self.get_logger().error("🛑 Sending CANCEL request to AR4 Action Server!")
-                self.ar4_active_goal_handle.cancel_goal_async() 
-            
-            if self.abb_active_goal_handle is not None:
-                self.get_logger().error("🛑 Sending CANCEL request to ABB Action Server!")
-                self.abb_active_goal_handle.cancel_goal_async()
+            if self.ar4_goal_handle: self.ar4_goal_handle.cancel_goal_async()
+            if self.abb_goal_handle: self.abb_goal_handle.cancel_goal_async()
 
-            # --- 🔄 SWITCH TO MTC RESOLUTION INSTEAD OF DEAD STOP ---
             self.state = "TRIGGER_MTC_SAFE_RESOLUTION"
+
     async def state_machine_loop(self):
         self.timer.cancel()
         try:
@@ -383,9 +468,10 @@ class HybridAssemblySupervisor(Node):
                     return
 
                 # --- AR4 DISPATCHER ---
-                if not self.ar4_busy:
+                if not self.ar4_busy and self.state != "AR4_PLACE_ON_GRID":
                     ar4_brick = next((b for b in self.assembly_queue if b.start_side == "AR4"), None)
                     if ar4_brick:
+                        self.ar4_current_brick = ar4_brick
                         if self.is_handover_operation(ar4_brick):
                             self.assembly_queue.remove(ar4_brick)
                             self.current_brick = ar4_brick
@@ -396,14 +482,16 @@ class HybridAssemblySupervisor(Node):
                             self.ar4_busy = True
                             # Use a non-lambda wrapper to ensure it is awaited
                             def ar4_callback():
-                                self.ar4_timer.cancel()
+                                if self.ar4_timer:
+                                    self.ar4_timer.cancel()
                                 self.executor.create_task(self.execute_ar4_worker(ar4_brick))
                             self.ar4_timer = self.create_timer(0.01, ar4_callback, callback_group=self.cb_group)
 
                 # --- DISPATCH TO ABB ---
-                if not self.abb_busy:
+                if not self.abb_busy and self.state != "EXECUTE_ABB_PLACE":
                     abb_brick = next((b for b in self.assembly_queue if b.start_side == "ABB"), None)
                     if abb_brick:
+                        self.abb_current_brick = abb_brick
                         if self.is_handover_operation(abb_brick):
                             if not self.ar4_busy:
                                 self.assembly_queue.remove(abb_brick)
@@ -415,14 +503,10 @@ class HybridAssemblySupervisor(Node):
                             self.abb_busy = True
                             # Use a non-lambda wrapper to ensure it is awaited
                             def abb_callback():
-                                self.abb_timer.cancel()
+                                if self.abb_timer:
+                                    self.abb_timer.cancel()
                                 self.executor.create_task(self.execute_abb_worker(abb_brick))
                             self.abb_timer = self.create_timer(0.01, abb_callback, callback_group=self.cb_group)
-
-                self.state = "PROCESS_NEXT"
-
-                # self.current_brick = self.assembly_queue.pop(0)
-                # self.state = "GRASP_PIPELINE"
 
             elif self.state == "GRASP_PIPELINE":
                 self.get_logger().info(f'Getting grasp for Brick {self.current_brick.id}')
@@ -557,108 +641,19 @@ class HybridAssemblySupervisor(Node):
                     self.state = "HANDOVER_SEQUENCE"
 
             # ================================================================
-            # HANDOVER SEQUENCE STATES
-            # ================================================================
-
-            elif self.state == "AR4_PICK_FOR_HANDOVER":
-                self.get_logger().info(f'[HANDOVER Phase 1] AR4 picking brick {self.current_brick.id}')
-                if not await self.set_ar4_gripper(True): return
-                
-                approach_goal = MoveToPose.Goal()
-                approach_goal.target_pose = self.current_grasp_point.pose
-                approach_goal.strategy = "APPROACH_OFFSET"
-                action_result = await self.send_action_goal(self.ar4_point_client, approach_goal)
-                if not action_result or not action_result.success: return
-                
-                grasp_goal = MoveToPose.Goal()
-                grasp_goal.target_pose = self.current_grasp_point.pose
-                grasp_goal.strategy = "GRASP"
-                action_result = await self.send_action_goal(self.ar4_point_client, grasp_goal)
-                if not action_result or not action_result.success: return
-                
-                if not await self.set_ar4_gripper(False): return
-                
-                self.get_logger().info('✓ AR4 picked successfully')
-                self.state = "AR4_MOVE_TO_INTERMEDIATE"
-
-            elif self.state == "AR4_MOVE_TO_INTERMEDIATE":
-                self.get_logger().info(f'[HANDOVER Phase 2] AR4 moving to intermediate position')
-                if not await self.get_current_arm_poses(): return
-                
-                self.intermediate_pose = self.calculate_intermediate_pose(
-                    self.current_grasp_point.pose,
-                    self.current_brick.place_pose
-                )
-                
-                move_goal = MoveToPose.Goal()
-                move_goal.target_pose = self.intermediate_pose
-                move_goal.strategy = "MOVE"
-                action_result = await self.send_action_goal(self.ar4_point_client, move_goal)
-                if not action_result or not action_result.success: return
-                
-                self.get_logger().info('✓ AR4 at intermediate position')
-                self.state = "REQUEST_ABB_GRASP_POINT"
-
-            elif self.state == "REQUEST_ABB_GRASP_POINT":
-                self.get_logger().info(f'[HANDOVER Phase 3] Requesting ABB grasp point from intermediate')
-                if not self.grasp_pipeline_client.wait_for_service(timeout_sec=2.0): return
-                
-                grasp_req = GetGrasp.Request()
-                grasp_req.brick_index = str(self.current_brick.id)
-                grasp_result = await self.grasp_pipeline_client.call_async(grasp_req)
-                
-                if grasp_result.success:
-                    abb_grasp_point = grasp_result.grasp_point
-                    abb_grasp_point.pose = self.transform_pose_to_abb(abb_grasp_point.pose)
-                    self.abb_grasp_point_for_handover = abb_grasp_point
-                    self.state = "ABB_PICK_FROM_HANDOVER"
-                else: return
-
-            elif self.state == "ABB_PICK_FROM_HANDOVER":
-                self.get_logger().info(f'[HANDOVER Phase 4] ABB picking from intermediate')
-                abb_pick_goal = ExecuteTask.Goal()
-                abb_pick_goal.task_type = "PICK"
-                abb_pick_goal.target_pose = self.abb_grasp_point_for_handover.pose
-                action_result = await self.send_action_goal(self.abb_client, abb_pick_goal)
-                if not action_result or not action_result.success: return
-                
-                self.get_logger().info('✓ ABB picked successfully')
-                self.state = "AR4_RELEASE_AT_INTERMEDIATE"
-
-            elif self.state == "AR4_RELEASE_AT_INTERMEDIATE":
-                self.get_logger().info(f'[HANDOVER Phase 5] AR4 releasing brick')
-                if not await self.set_ar4_gripper(True): return
-                
-                retract_goal = MoveToPose.Goal()
-                retract_goal.strategy = "HOME"
-                await self.send_action_goal(self.ar4_point_client, retract_goal)
-                
-                self.get_logger().info('✓ AR4 released and retracted')
-                self.state = "ABB_PLACE_FROM_HANDOVER"
-
-            elif self.state == "ABB_PLACE_FROM_HANDOVER":
-                self.get_logger().info(f'[HANDOVER Phase 6] ABB placing brick at target')
-                abb_place_goal = ExecuteTask.Goal()
-                abb_place_goal.task_type = "PLACE"
-                abb_place_goal.target_pose = self.current_brick.place_pose
-                action_result = await self.send_action_goal(self.abb_client, abb_place_goal)
-                if not action_result or not action_result.success: return
-                
-                self.get_logger().info(f'✅ HANDOVER COMPLETE: Brick {self.current_brick.id} successfully transferred!')
-                self.state = "PROCESS_NEXT"
-
-            # ================================================================
             # SEQUENTIAL FALLBACK STATES
             # ================================================================
 
             elif self.state == "EXECUTE_AR4_DIRECT":
                 self.get_logger().info(f'AR4 Direct Pick for {self.current_brick.id}')
+                self.ar4_stage = "PICK"
+                
                 await self.set_ar4_gripper(True)
 
                 goal_msg = MoveToPose.Goal()
                 goal_msg.target_pose = self.current_grasp_point.pose
                 goal_msg.strategy = "APPROACH_OFFSET"
-                action_result = await self.send_action_goal(self.ar4_point_client, goal_msg)
+                action_result = await self.send_action_goal(self.ar4_client, goal_msg)
                 if not action_result or not action_result.success:
                     self.state = "RECOVERY"
                     return
@@ -668,7 +663,7 @@ class HybridAssemblySupervisor(Node):
                 grasp_goal = MoveToPose.Goal()
                 grasp_goal.target_pose = self.current_grasp_point.pose
                 grasp_goal.strategy = "GRASP"
-                action_result = await self.send_action_goal(self.ar4_point_client, grasp_goal)
+                action_result = await self.send_action_goal(self.ar4_client, grasp_goal)
                 if not action_result or not action_result.success:
                     self.state = "RECOVERY"
                     return
@@ -676,11 +671,12 @@ class HybridAssemblySupervisor(Node):
                 self.state = "AR4_PLACE_ON_GRID"
 
             elif self.state == "AR4_PLACE_ON_GRID":
+                self.ar4_stage = "PLACE"
                 place_goal = MoveToPose.Goal()
                 place_goal.target_pose = self.current_brick.place_pose
                 place_goal.target_pose.position.z = 0.22 
                 place_goal.strategy = "PLACE"
-                action_result = await self.send_action_goal(self.ar4_point_client, place_goal)
+                action_result = await self.send_action_goal(self.ar4_client, place_goal)
                 if not action_result or not action_result.success:
                     self.state = "RECOVERY"
                     return
@@ -688,12 +684,14 @@ class HybridAssemblySupervisor(Node):
                 self.get_logger().info('Retracting AR4 to safe position...')
                 retract_goal = MoveToPose.Goal()
                 retract_goal.strategy = "HOME"
-                await self.send_action_goal(self.ar4_point_client, retract_goal)
+                await self.send_action_goal(self.ar4_client, retract_goal)
 
+                self.ar4_stage = "DONE"
                 self.state = "PROCESS_NEXT"
 
             elif self.state == "EXECUTE_ABB_PICK":
                 self.get_logger().info(f'ABB Pick for {self.current_brick.id}')
+                self.abb_stage = "PICK"
 
                 abb_pick_goal = ExecuteTask.Goal()
                 abb_pick_goal.task_type = "PICK"
@@ -706,6 +704,7 @@ class HybridAssemblySupervisor(Node):
                 self.state = "EXECUTE_ABB_PLACE"
 
             elif self.state == "EXECUTE_ABB_PLACE":
+                self.abb_stage = "PLACE"
                 abb_place_goal = ExecuteTask.Goal()
                 abb_place_goal.task_type = "PLACE"
                 abb_place_goal.target_pose = self.current_brick.place_pose
@@ -716,13 +715,14 @@ class HybridAssemblySupervisor(Node):
                     self.state = "RECOVERY"
                     return
                 
+                self.abb_stage = "DONE"
                 self.state = "PROCESS_NEXT"
 
             elif self.state == "RECOVERY":
                 self.get_logger().warn('Entering Recovery Mode')
                 recovery_goal = MoveToPose.Goal()
                 recovery_goal.strategy = "HOME"
-                action_result = await self.send_action_goal(self.ar4_point_client, recovery_goal)
+                action_result = await self.send_action_goal(self.ar4_client, recovery_goal)
 
                 if action_result and action_result.success:
                     self.get_logger().info('Recovery successful')
@@ -740,37 +740,56 @@ class HybridAssemblySupervisor(Node):
                     self.state = "EMERGENCY_STOP"
                     return
                 
-                # --- UPDATE: Fetch current poses just in case one arm is currently idle ---
                 await self.get_current_arm_poses()
                 
-                # Send the interrupted targets to MTC (or current pose if idle)
                 req = ResolveCollision.Request()
                 req.ar4_target_pose = self.ar4_active_target if self.ar4_active_target else self.ar4_current_pose
                 req.abb_target_pose = self.abb_active_target if self.abb_active_target else self.abb_current_pose
                 
-                self.get_logger().info('Sending interrupted targets to MTC Node...')
                 result = await self.mtc_resolve_client.call_async(req)
                 
-                if result.success:
-                    self.get_logger().info('✅ MTC successfully routed arms out of proximity. Resuming parallel workflow...')
+                if result and result.success:
+                    self.get_logger().info('✅ MTC Resolution Complete. Waiting for physical clearance...')
                     
-                    # Clear active targets now that MTC reached them
+                    # 1. Wait for physical clearance to prevent proximity sensor loop
+                    await self.ros_sleep(1.5)
+                    self.get_logger().info(f"🔄 EXITING MTC. AR4 was in [{self.ar4_stage}], ABB was in [{self.abb_stage}]")
+
+                    # 2. Reset the system locks
+                    self.mtc_active = False
+                    self.emergency_stop = False
                     self.ar4_active_target = None
                     self.abb_active_target = None
-                    
-                    # Wake up the paused Python workers
-                    self.emergency_stop = False
-                    
-                    # Restore the state we were in before the E-Stop happened
-                    # Do NOT touch ar4_busy or abb_busy! The workers will clear them when they finish.
-                    self.state = getattr(self, 'pre_estop_state', "PROCESS_NEXT")
+                    self.ar4_cancelled = False
+                    self.abb_cancelled = False
+
+                    # 3. USE THE RECOVERY WORKERS INSTEAD OF LEGACY STATES
+                    if self.ar4_stage in ["PICK", "PLACE"] and self.ar4_current_brick:
+                        self.get_logger().info("Spawning AR4 Recovery Worker...")
+                        self.ar4_busy = True
+                        self.ar4_recovering = True
+                        self.executor.create_task(self.recover_ar4_worker(self.ar4_stage, self.ar4_current_brick))
+                    else:
+                        self.ar4_busy = False
+
+                    if self.abb_stage in ["PICK", "PLACE"] and self.abb_current_brick:
+                        self.get_logger().info("Spawning ABB Recovery Worker...")
+                        self.abb_busy = True
+                        self.abb_recovering = True
+                        self.executor.create_task(self.recover_abb_worker(self.abb_stage, self.abb_current_brick))
+                    else:
+                        self.abb_busy = False
+
+                    # 4. Return to normal dispatching
+                    self.state = "PROCESS_NEXT"
                 else:
-                    self.get_logger().error(f'MTC Resolution Failed: {result.message}')
+                    self.get_logger().error('MTC Resolution Failed.')
                     self.state = "EMERGENCY_STOP"
 
             elif self.state == "EMERGENCY_STOP":
                 self.get_logger().error("SYSTEM HALTED - Manual Reset Required")
-                return
+                await self.ros_sleep(3.0)
+                self.state = "TRIGGER_MTC_SAFE_RESOLUTION"
 
         except Exception as e:
             self.get_logger().error(f'State machine error: {e}')
@@ -791,10 +810,11 @@ class HybridAssemblySupervisor(Node):
             )
             await future
             self.destroy_timer(timer)
+            
     def transform_pose_to_abb(self, input_pose):
         """Transform pose from camera frame to ABB base frame"""
         try:
-            t = self.tf_buffer.lookup_transform('base_link', 'camera_color_optical_frame', rclpy.time.Time())
+            t = self.tf_buffer.lookup_transform('abb_table', 'camera_color_optical_frame', rclpy.time.Time())
             transformed_pose = tf2_geometry_msgs.do_transform_pose(input_pose, t)
             return transformed_pose
         except TransformException as ex:
@@ -806,25 +826,22 @@ class HybridAssemblySupervisor(Node):
             self.get_logger().error(f'Action server not available')
             return None
 
-        send_goal_future = client.send_goal_async(goal_msg)
-        goal_handle = await send_goal_future
+        # --- STORE THE ACTION GOAL HANDLES (Update 3) ---
+        goal_future = client.send_goal_async(goal_msg)
+        goal_handle = await goal_future
 
         if not goal_handle.accepted:
             self.get_logger().error(f'Goal rejected')
             return None
 
         # --- STORE GOAL HANDLE AND TARGET FOR MTC RECOVERY ---
-        if client == self.ar4_point_client:
-            self.ar4_active_goal_handle = goal_handle
-            
-            # Prevent empty poses from being saved during HOME commands
-            if hasattr(goal_msg, 'strategy') and goal_msg.strategy == "HOME":
-                self.ar4_active_target = None
-            elif hasattr(goal_msg, 'target_pose'):
+        if client == self.ar4_client:  
+            self.ar4_goal_handle = goal_handle
+            if hasattr(goal_msg, 'target_pose'):
                 self.ar4_active_target = goal_msg.target_pose
                 
         elif client == self.abb_client:
-            self.abb_active_goal_handle = goal_handle
+            self.abb_goal_handle = goal_handle
             if hasattr(goal_msg, 'target_pose'):
                 self.abb_active_target = goal_msg.target_pose
 
@@ -832,25 +849,21 @@ class HybridAssemblySupervisor(Node):
         result = await result_future
 
         # --- CLEAR GOAL HANDLE ONCE FINISHED ---
-        if client == self.ar4_point_client and self.ar4_active_goal_handle == goal_handle:
-            self.ar4_active_goal_handle = None
-        elif client == self.abb_client and self.abb_active_goal_handle == goal_handle:
-            self.abb_active_goal_handle = None
+        if goal_handle is not None:
+            if client == self.ar4_client and self.ar4_goal_handle is not None:
+                if self.ar4_goal_handle == goal_handle:
+                    self.ar4_goal_handle = None
+            elif client == self.abb_client and self.abb_goal_handle is not None:
+                if self.abb_goal_handle == goal_handle:
+                    self.abb_goal_handle = None
 
         if result.status == GoalStatus.STATUS_SUCCEEDED:
             return result.result
         else:
-            # --- THE MAGIC FIX: DON'T DIE, JUST PAUSE ---
-            if self.emergency_stop:
-                self.get_logger().info('Action halted by E-Stop. Pausing worker until MTC finishes...')
-                while self.emergency_stop:
-                    await self.ros_sleep(0.1)  # Thread sleeps here while MTC does the driving
-                
-                self.get_logger().info('MTC successfully reached target! Resuming assembly step.')
-                return "MTC_RECOVERED" # Fakes a success so the worker continues to the next line
-            else:
-                self.get_logger().error(f'Action failed with status: {result.status}')
-                return None
+            # FIX: If canceled by MTC, we no longer pause. We ABORT the thread.
+            self.get_logger().warn(f'Action aborted or canceled. Original thread dying.')
+            return None
+            
     async def set_ar4_gripper(self, open_gripper: bool):
         """Control AR4 gripper"""
         if not self.gripper_client.wait_for_service(timeout_sec=10.0):
@@ -861,12 +874,121 @@ class HybridAssemblySupervisor(Node):
         req.data = open_gripper
         result = await self.gripper_client.call_async(req)
         return result.success
+    
+    async def set_abb_gripper(self, open_gripper: bool):
+        """Control ABB gripper"""
+        if not self.abb_gripper_client.wait_for_service(timeout_sec=10.0):
+            self.get_logger().error('ABB Gripper service not available')
+            return False
+        req = SetBool.Request()
+        req.data = open_gripper
+        result = await self.abb_gripper_client.call_async(req)
+        return result.success
+    
+    async def recover_ar4_worker(self, stage, brick):
+        self.get_logger().info(f'[AR4 RECOVERY] Resuming from {stage} for brick {brick.id}')
+        
+        if self.emergency_stop or self.ar4_cancelled:
+            self.ar4_busy = False
+            return
+        
+        if stage == "PICK":
+            # 1. MTC got us to the brick. Finalize the pick by closing the gripper manually.
+            self.get_logger().info("Closing AR4 gripper to finalize MTC Pick...")
+            await self.set_ar4_gripper(False) 
+            
+            if self.emergency_stop or self.ar4_cancelled:
+                self.ar4_busy = False
+                return
+        
+            # 2. Hand control back to the Task Server to finish the job
+            self.get_logger().info("Executing AR4 PLACE...")
+            plc_goal = ExecuteTask.Goal(task_type="PLACE", target_pose=brick.place_pose)
+            plc_goal.target_pose.position.z = 0.22 
+            await self.send_action_goal(self.ar4_client, plc_goal)
 
+            if self.emergency_stop or self.ar4_cancelled:
+                self.ar4_busy = False
+                return
+            
+        elif stage == "PLACE":
+            # 1. MTC got us to the grid. Finalize the place by opening the gripper manually.
+            self.get_logger().info("Opening AR4 gripper to finalize MTC Place...")
+            await self.set_ar4_gripper(True) 
+
+            if self.emergency_stop or self.ar4_cancelled:
+                self.ar4_busy = False
+                return
+            
+            # 2. Arm is empty. Tell the Task Server to go home.
+            self.get_logger().info("Returning AR4 to HOME...")
+            await self.send_action_goal(self.ar4_client, ExecuteTask.Goal(task_type="HOME"))
+
+            if self.emergency_stop or self.ar4_cancelled:
+                self.ar4_busy = False
+                return
+            
+        self.ar4_stage = "DONE"
+        self.ar4_busy = False
+        self.ar4_recovering = False
+        self.get_logger().info('[AR4 RECOVERY] Complete.')
+
+    async def recover_abb_worker(self, stage, brick):
+        self.get_logger().info(f'[ABB RECOVERY] Resuming from {stage} for brick {brick.id}')
+        
+        if self.emergency_stop or self.abb_cancelled:
+            self.abb_busy = False
+            return
+        
+        if stage == "PICK":
+            # 1. Finalize the pick manually.
+            self.get_logger().info("Closing ABB gripper to finalize MTC Pick...")
+            await self.set_abb_gripper(False) 
+            
+            if self.emergency_stop or self.abb_cancelled:
+                self.abb_busy = False
+                return
+        
+            # 2. Execute PLACE
+            self.get_logger().info("Executing ABB PLACE...")
+            plc_goal = ExecuteTask.Goal(task_type="PLACE", target_pose=brick.place_pose)
+            plc_goal.target_pose.position.z = 0.24 
+            await self.send_action_goal(self.abb_client, plc_goal)
+
+            if self.emergency_stop or self.abb_cancelled:
+                self.abb_busy = False
+                return
+            
+        elif stage == "PLACE":
+            # 1. Finalize the place manually.
+            self.get_logger().info("Opening ABB gripper to finalize MTC Place...")
+            await self.set_abb_gripper(True) 
+            
+            if self.emergency_stop or self.abb_cancelled:
+                self.abb_busy = False
+                return
+            
+            # 2. Go Home
+            self.get_logger().info("Returning ABB to HOME...")
+            await self.send_action_goal(self.abb_client, ExecuteTask.Goal(task_type="HOME"))
+
+            if self.emergency_stop or self.abb_cancelled:
+                self.abb_busy = False
+                return
+            
+        self.abb_stage = "DONE"
+        self.abb_busy = False
+        self.abb_recovering = False
+        self.get_logger().info('[ABB RECOVERY] Complete.')
 
 def main(args=None):
     rclpy.init(args=args)
     node = HybridAssemblySupervisor()
     executor = MultiThreadedExecutor()
+    
+    # --- FIX THE EXECUTOR REFERENCE BUG (Update 7) ---
+    node.executor = executor
+    
     executor.add_node(node)
     try:
         executor.spin()
@@ -874,8 +996,9 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
-
+        # --- FIX ROS SHUTDOWN CRASH (Update 8) ---
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

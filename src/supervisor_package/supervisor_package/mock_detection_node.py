@@ -52,7 +52,7 @@ class MockDetectionNode(Node):
             brick = Brick()
             brick.header = Header()
             brick.header.stamp = self.get_clock().now().to_msg()
-            brick.header.frame_id = "base_link"
+            brick.header.frame_id = "abb_table"
             
             brick.id = i
             

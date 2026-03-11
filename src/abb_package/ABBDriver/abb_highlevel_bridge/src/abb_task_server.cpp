@@ -45,7 +45,6 @@ public:
         );
 
         // 3. Initialize ARM Driver Client (The Key to Parallelism)
-        // This bypasses MoveIt execution blocking
         this->arm_driver_client_ = rclcpp_action::create_client<TrajectoryAction>(
             this,
             "/irb120_trajectory_controller/follow_joint_trajectory"
@@ -77,7 +76,7 @@ public:
             move_group_->setGoalPositionTolerance(0.001); 
             move_group_->setGoalOrientationTolerance(0.017); 
             move_group_->setPlanningTime(10.0);
-            move_group_->setPoseReferenceFrame("base_link");
+            move_group_->setPoseReferenceFrame("abb_table");
             
             // Speed up simulation execution
             move_group_->setMaxVelocityScalingFactor(0.8);
@@ -93,11 +92,8 @@ private:
     rclcpp_action::Server<ExecuteTask>::SharedPtr action_server_;
     rclcpp::Client<abb_robot_msgs::srv::SetRAPIDBool>::SharedPtr real_gripper_client_;
     std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
-
-    // Two clients now: one for Gripper, one for Arm
     rclcpp_action::Client<TrajectoryAction>::SharedPtr sim_gripper_client_;
     rclcpp_action::Client<TrajectoryAction>::SharedPtr arm_driver_client_;
-    
     bool use_sim_;
 
     rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID &, std::shared_ptr<const ExecuteTask::Goal> goal)
@@ -114,12 +110,9 @@ private:
             move_group_->stop();
         }
 
-        // --- NEW: Physical Freeze for ABB ---
-        // Force the trajectory controller to drop the current path
+        // Physical Freeze for ABB
         if (arm_driver_client_) {
             arm_driver_client_->async_cancel_all_goals();
-            
-            // Extra safety: Publish empty trajectory to override hardware queue
             auto stop_pub = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
                 "/irb120_trajectory_controller/joint_trajectory", 10);
             trajectory_msgs::msg::JointTrajectory empty_msg;
@@ -136,28 +129,33 @@ private:
         std::thread{std::bind(&AbbTaskServer::execute, this, _1), goal_handle}.detach();
     }
 
-    // =========================================================================
-    // EXECUTION LOGIC (Updated to use Helper Functions)
-    // =========================================================================
+    // --- HELPER MACRO: Safely exit if Supervisor cancels us mid-execution ---
+    #define HANDLE_FAILURE(error_msg) \
+        result->success = false; \
+        if (goal_handle->is_canceling()) { \
+            result->error_message = "Canceled by Supervisor"; \
+            goal_handle->canceled(result); \
+            RCLCPP_WARN(this->get_logger(), "Task canceled gracefully. Yielding to MTC."); \
+        } else { \
+            result->error_message = error_msg; \
+            goal_handle->abort(result); \
+        } \
+        return;
+
     void execute(const std::shared_ptr<GoalHandleExecuteTask> goal_handle)
     {
         const auto goal = goal_handle->get_goal();
         auto feedback = std::make_shared<ExecuteTask::Feedback>();
         auto result = std::make_shared<ExecuteTask::Result>();
 
-        if (!move_group_) {
-            result->success = false;
-            result->error_message = "MoveGroup not initialized!";
-            goal_handle->abort(result);
-            return;
-        }
+        if (!move_group_) { HANDLE_FAILURE("MoveGroup not initialized!"); }
 
         // --- PICK ---
         if (goal->task_type == "PICK")
         {
             RCLCPP_INFO(this->get_logger(), "Executing standard PICK sequence");
             
-            // 1. Open Gripper
+            // 1. Open Gripper (Commented out exactly as in your original file)
             // control_gripper(true);
 
             // 2. Pre-Grasp Approach
@@ -168,26 +166,16 @@ private:
             geometry_msgs::msg::Pose pregrasp = goal->target_pose;
             pregrasp.position.z = pregrasp.position.z + 0.1;
             
-            if (!move_to_pose(pregrasp)) {
-                result->success = false;
-                result->error_message = "PICK: Failed to reach pregrasp";
-                goal_handle->abort(result);
-                return;
-            }
+            if (!move_to_pose(pregrasp, goal_handle)) { HANDLE_FAILURE("PICK: Failed to reach pregrasp"); }
 
             // 3. Move to Target
             feedback->current_status = "MOVING_TO_TARGET";
             feedback->progress = 0.6;
             goal_handle->publish_feedback(feedback);
 
-            if (!move_to_pose(goal->target_pose)) {
-                result->success = false;
-                result->error_message = "PICK: Failed to reach pose";
-                goal_handle->abort(result);
-                return;
-            }
+            if (!move_to_pose(goal->target_pose, goal_handle)) { HANDLE_FAILURE("PICK: Failed to reach pose"); }
 
-            // 4. Close Gripper
+            // 4. Close Gripper (Commented out exactly as in your original file)
             // control_gripper(false);
         }
         // --- PLACE ---
@@ -203,24 +191,14 @@ private:
             geometry_msgs::msg::Pose preplace = goal->target_pose;
             preplace.position.z = preplace.position.z + 0.05;
             
-            if (!move_to_pose(preplace)) {
-                result->success = false;
-                result->error_message = "PLACE: Failed to reach pre place";
-                goal_handle->abort(result);
-                return;
-            }
+            if (!move_to_pose(preplace, goal_handle)) { HANDLE_FAILURE("PLACE: Failed to reach pre place"); }
 
             // 2. Move to Place
             feedback->current_status = "MOVING_TO_PLACE";
             feedback->progress = 0.5;
             goal_handle->publish_feedback(feedback);
             
-            if (!move_to_pose(goal->target_pose)) {
-                result->success = false;
-                result->error_message = "PLACE: Failed to reach pose";
-                goal_handle->abort(result);
-                return;
-            }
+            if (!move_to_pose(goal->target_pose, goal_handle)) { HANDLE_FAILURE("PLACE: Failed to reach pose"); }
 
             // 3. Release
             feedback->current_status = "RELEASING_OBJECT";
@@ -233,16 +211,24 @@ private:
             feedback->progress = 0.9;
             goal_handle->publish_feedback(feedback);
             
-            if (!move_to_named_target("home")) {
+            if (!move_to_named_target("home", goal_handle)) {
                 RCLCPP_WARN(this->get_logger(), "PLACE: Failed to return to HOME");
             }
         }
-        else {
-            result->success = false;
-            result->error_message = "Task " + goal->task_type + " not implemented for ABB";
-            goal_handle->abort(result);
-            return;
+        else if (goal->task_type == "HOME")
+        {
+            RCLCPP_INFO(this->get_logger(), "Executing ABB HOME sequence");
+            feedback->current_status = "RETURNING_HOME";
+            goal_handle->publish_feedback(feedback);
+
+            if (!move_to_named_target("home", goal_handle)) { HANDLE_FAILURE("HOME: Failed to reach home"); }
         }
+        else {
+            HANDLE_FAILURE("Task " + goal->task_type + " not implemented for ABB");
+        }
+
+        // Final cancellation check before claiming success
+        if (goal_handle->is_canceling()) { HANDLE_FAILURE("Canceled at finish"); }
 
         result->success = true;
         result->error_message = "None";
@@ -250,12 +236,10 @@ private:
         RCLCPP_INFO(this->get_logger(), "ABB Task Completed Successfully.");
     }
 
-    // =========================================================================
-    // NEW MOVEMENT HELPERS (PLAN -> EXECUTE VIA DRIVER)
-    // =========================================================================
-
-    bool move_to_pose(const geometry_msgs::msg::Pose & target)
+    bool move_to_pose(const geometry_msgs::msg::Pose & target, std::shared_ptr<GoalHandleExecuteTask> goal_handle)
     {
+        if (goal_handle->is_canceling()) return false;
+
         // 1. Setup MoveIt Goal
         move_group_->setPoseTarget(target);
         
@@ -263,18 +247,26 @@ private:
         moveit::planning_interface::MoveGroupInterface::Plan plan;
         auto error_code = move_group_->plan(plan);
 
+        // CRITICAL: Check if Supervisor canceled us WHILE we were doing the heavy math
+        if (goal_handle->is_canceling()) {
+            move_group_->clearPoseTargets();
+            return false; 
+        }
+
         if (error_code == moveit::core::MoveItErrorCode::SUCCESS) {
-            // 3. Execute via Driver (Does NOT block MoveIt for other robots)
+            // 3. Execute via Driver
             RCLCPP_INFO(this->get_logger(), "Plan successful. Sending to Driver...");
-            return execute_trajectory_via_driver(plan.trajectory.joint_trajectory);
+            return execute_trajectory_via_driver(plan.trajectory.joint_trajectory, goal_handle);
         }
         
         RCLCPP_ERROR(this->get_logger(), "Planning Failed!");
         return false;
     }
 
-    bool move_to_named_target(const std::string & name)
+    bool move_to_named_target(const std::string & name, std::shared_ptr<GoalHandleExecuteTask> goal_handle)
     {
+        if (goal_handle->is_canceling()) return false;
+
         if (move_group_->getNamedTargets().empty()) {
              RCLCPP_WARN(this->get_logger(), "No named targets found.");
              return false;
@@ -284,15 +276,16 @@ private:
         
         moveit::planning_interface::MoveGroupInterface::Plan plan;
         if (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS) {
+             if (goal_handle->is_canceling()) return false; // CRITICAL CANCEL CHECK
              RCLCPP_INFO(this->get_logger(), "Home Plan successful. Sending to Driver...");
-             return execute_trajectory_via_driver(plan.trajectory.joint_trajectory);
+             return execute_trajectory_via_driver(plan.trajectory.joint_trajectory, goal_handle);
         }
         
         RCLCPP_ERROR(this->get_logger(), "Failed to plan to named target: %s", name.c_str());
         return false;
     }
 
-    bool execute_trajectory_via_driver(const trajectory_msgs::msg::JointTrajectory& trajectory)
+    bool execute_trajectory_via_driver(const trajectory_msgs::msg::JointTrajectory& trajectory, std::shared_ptr<GoalHandleExecuteTask> server_goal_handle)
     {
         if (!arm_driver_client_->wait_for_action_server(std::chrono::seconds(2))) {
             RCLCPP_ERROR(this->get_logger(), "ABB Driver Action Server not found!");
@@ -316,15 +309,20 @@ private:
             return false;
         }
 
-        // Wait for result (Blocks this specific thread, but MoveIt is free for the AR4!)
+        // Wait for result
         auto result_future = arm_driver_client_->async_get_result(goal_handle);
         
-        // Wait up to 30s for the move to finish
-        if (result_future.wait_for(std::chrono::seconds(100)) == std::future_status::ready) {
-            auto result = result_future.get();
-            if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
-                return true;
+        // Monitor for C++ Action Cancel while physically moving
+        while (result_future.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
+            if (server_goal_handle->is_canceling()) {
+                arm_driver_client_->async_cancel_all_goals();
+                return false;
             }
+        }
+
+        auto result = result_future.get();
+        if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+            return true;
         }
 
         RCLCPP_ERROR(this->get_logger(), "ABB Driver Execution Failed or Timed Out.");
@@ -332,7 +330,7 @@ private:
     }
 
     // =========================================================================
-    // GRIPPER HELPERS (Unchanged Logic)
+    // RESTORED GRIPPER HELPERS
     // =========================================================================
 
     bool control_gripper(bool open) {

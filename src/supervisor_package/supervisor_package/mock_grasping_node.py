@@ -35,7 +35,7 @@ class MockGraspingNode(Node):
         
         grasp = GraspPoint()
         grasp.header = Header()
-        grasp.header.frame_id = "base_link"
+        grasp.header.frame_id = "abb_table"
         grasp.header.stamp = self.get_clock().now().to_msg()
         grasp.brick_id = brick_id
         

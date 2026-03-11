@@ -39,10 +39,10 @@ def generate_launch_description():
     # ---------------------------------------------------------
     
     # AR4 Point Control (The Muscle)
-    pose_commander_node = Node(
-        package='point_control_pkg',
-        executable='pose_commander_action', # Corrected executable name
-        name='ar4_pose_commander',
+    ar4_task_server_node = Node(
+        package='ar4_highlevel_bridge',
+        executable='ar4_task_server', # Corrected executable name
+        name='ar4_task_server',
         output='screen',
         parameters=[
             {"robot_description_kinematics": kinematics_config},
@@ -105,9 +105,9 @@ def generate_launch_description():
     # ---------------------------------------------------------
     return LaunchDescription([
         declare_use_sim_time,
-        pose_commander_node,
-        ar4_controller,
-        abb_controller,
+        ar4_task_server_node,
+        # ar4_controller,
+        # abb_controller,
         abb_task_server_node,
         # visp_node,
         supervisor_node

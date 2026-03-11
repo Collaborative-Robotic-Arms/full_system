@@ -1,97 +1,76 @@
-"""
-This launch file starts:
-1. Hybrid MTC Controller (C++ node)
-2. Zone Detection Manager (C++ node)
-3. MoveIt configurations injected for MTC
-
-Usage:
-  ros2 launch dual_arms_mtc hybrid_mtc_launch.py
-"""
-
+import os
+import yaml
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
-from moveit_configs_utils import MoveItConfigsBuilder
-import os
+from launch.substitutions import Command, FindExecutable, PathJoinSubstitution
+from launch_ros.parameter_descriptions import ParameterValue
 
+def load_yaml(package_name, file_path):
+    package_path = get_package_share_directory(package_name)
+    absolute_file_path = os.path.join(package_path, file_path)
+    try:
+        with open(absolute_file_path, "r") as file:
+            return yaml.safe_load(file)
+    except EnvironmentError:
+        return None
 
 def generate_launch_description():
-    # Get package directories
-    dual_arms_mtc_dir = get_package_share_directory('dual_arms_mtc')
+    dual_arms_share = get_package_share_directory("dual_arms")
+    dual_arms_mtc_share = get_package_share_directory("dual_arms_mtc")
+    mtc_config_path = os.path.join(dual_arms_mtc_share, 'config', 'hybrid_mtc_config.yaml')
+
+    # 1. Manual Robot Description (URDF)
+    robot_description_content = Command([
+        PathJoinSubstitution([FindExecutable(name="xacro")]),
+        " ",
+        PathJoinSubstitution([dual_arms_share, "urdf", "dual_arms_with_environment.xacro"]),
+    ])
+    robot_description = {"robot_description": ParameterValue(robot_description_content, value_type=str)}
+
+    # 2. Manual Semantic Description (SRDF)
+    robot_description_semantic_content = Command([
+        PathJoinSubstitution([FindExecutable(name="xacro")]),
+        " ",
+        PathJoinSubstitution([dual_arms_share, "config", "dual_arms.srdf"]),
+    ])
+    robot_description_semantic = {"robot_description_semantic": ParameterValue(robot_description_semantic_content, value_type=str)}
+
+    # 3. Manual Kinematics & Planning
+    kinematics_yaml = load_yaml("dual_arms", "config/kinematics.yaml")
+    joint_limits_yaml = load_yaml("dual_arms", "config/joint_limits.yaml")
     
-    # Configuration files
-    mtc_config = os.path.join(dual_arms_mtc_dir, 'config', 'hybrid_mtc_config.yaml')
-    
-    # ================================================================
-    # LOAD MOVEIT CONFIGURATIONS FOR MTC
-    # ================================================================
-    moveit_config = (
-        MoveItConfigsBuilder("dual_arms", package_name="dual_arms")
-        .robot_description(file_path="urdf/dual_arms_with_environment.xacro")
-        .robot_description_semantic(file_path="config/dual_arms.srdf")
-        .planning_pipelines(pipelines=["ompl"])
-        .to_moveit_configs()
-    )
-    
+    # 4. Manual OMPL Pipeline
+    ompl_config = load_yaml("dual_arms", "config/ompl_planning.yaml")
+    ompl_planning_pipeline = {
+        "planning_pipelines": ["ompl"],
+        "ompl": ompl_config if ompl_config else {}
+    }
+
     return LaunchDescription([
-        # ================================================================
-        # CORE MTC CONTROLLER
-        # ================================================================
         Node(
             package='dual_arms_mtc',
             executable='hybrid_mtc_controller',
             name='hybrid_mtc_controller',
             output='screen',
             parameters=[
-                mtc_config,
-                moveit_config.to_dict(),  # <--- INJECTS OMPL & KINEMATICS HERE
+                robot_description,
+                robot_description_semantic,
+                {"robot_description_kinematics": kinematics_yaml},
+                {"robot_description_planning": joint_limits_yaml},
+                ompl_planning_pipeline,
+                load_yaml('dual_arms_mtc', 'config/hybrid_mtc_config.yaml'),
                 {'use_sim_time': True}
-            ],
-            remappings=[
-                ('ar4_controller/execute_task', '/ar4_controller/execute_task'),
-                ('abb_controller/execute_task', '/abb_controller/execute_task'),
-                ('ar4_gripper/set', '/ar4_gripper/set'),
-                ('abb_gripper/set', '/abb_gripper/set'),
             ]
         ),
-        
-        # ================================================================
-        # ZONE DETECTION MANAGER
-        # ================================================================
         Node(
             package='dual_arms_mtc',
             executable='zone_detection_manager',
             name='zone_detection_manager',
             output='screen',
             parameters=[
-                mtc_config,
+                os.path.join(dual_arms_mtc_share, 'config', 'hybrid_mtc_config.yaml'),
                 {'use_sim_time': True}
             ],
         ),
-        
-        # ================================================================
-        # HYBRID SUPERVISOR (Python node)
-        # ================================================================
-        
-        # Node(
-        #     package='supervisor_package',
-        #     executable='hybrid_supervisor_node',
-        #     name='hybrid_supervisor',
-        #     output='screen',
-        #     parameters=[
-        #         {'use_sim': True},
-        #         {'enable_mtc_mode': True},
-        #         {'handover_trigger_distance': 0.30},
-        #     ]
-        # ),
-        
-        # ================================================================
-        # OPTIONAL: MoveIt Motion Planning Framework
-        # ================================================================
-        # Uncomment if you have separate MoveIt launch files
-        # IncludeLaunchDescription(
-        #     PythonLaunchDescriptionSource(
-        #         os.path.join(supervisor_dir, 'launch', 'moveit_planning.launch.py')
-        #     )
-        # ),
     ])

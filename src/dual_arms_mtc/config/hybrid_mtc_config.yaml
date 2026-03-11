@@ -29,7 +29,7 @@
       planner_id: "RRTstar"     # MoveIt motion planner
       max_velocity_scaling: 0.3
       max_acceleration_scaling: 0.2
-      planning_time: 5.0        # seconds
+      planning_time: 10.0        # seconds
       group_name: "dual_arms"
       
       # Per-arm planning parameters

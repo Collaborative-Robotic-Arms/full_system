@@ -1,0 +1,234 @@
+#include <memory>
+#include <thread>
+#include <string>
+#include <future>
+#include <chrono>
+
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
+#include "geometry_msgs/msg/pose.hpp"
+
+// MoveIt
+#include <moveit/move_group_interface/move_group_interface.hpp>
+
+// Custom Interfaces
+#include "dual_arms_msgs/action/execute_task.hpp"
+#include "std_srvs/srv/set_bool.hpp"
+
+using std::placeholders::_1;
+using std::placeholders::_2;
+
+class AR4TaskServer : public rclcpp::Node
+{
+public:
+    using ExecuteTask = dual_arms_msgs::action::ExecuteTask;
+    using GoalHandleExecuteTask = rclcpp_action::ServerGoalHandle<ExecuteTask>;
+
+    AR4TaskServer() : Node("ar4_task_server")
+    {   
+        this->declare_parameter("use_sim", true); 
+        this->use_sim_ = this->get_parameter("use_sim").as_bool();
+        
+        if (use_sim_) RCLCPP_INFO(this->get_logger(), "Starting in SIMULATION MODE.");
+        else RCLCPP_INFO(this->get_logger(), "Starting in REAL HARDWARE MODE.");
+
+        this->action_server_ = rclcpp_action::create_server<ExecuteTask>(
+            this, "ar4_control", 
+            std::bind(&AR4TaskServer::handle_goal, this, _1, _2),
+            std::bind(&AR4TaskServer::handle_cancel, this, _1),
+            std::bind(&AR4TaskServer::handle_accepted, this, _1)
+        );
+
+        this->gripper_client_ = this->create_client<std_srvs::srv::SetBool>("ar4_gripper/set");
+    }
+
+    void init()
+    {
+        static const std::string ROBOT_GROUP_NAME = "ar_manipulator"; 
+        try {
+            move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(shared_from_this(), ROBOT_GROUP_NAME);
+            move_group_->setPlanningPipelineId("move_group");
+            move_group_->setMaxVelocityScalingFactor(0.4);
+            move_group_->setMaxAccelerationScalingFactor(0.3);
+            move_group_->setGoalPositionTolerance(0.01);
+            move_group_->setGoalOrientationTolerance(0.01);
+            move_group_->setPlanningTime(15.0); 
+            move_group_->setPoseReferenceFrame("abb_table");
+            move_group_->setEndEffectorLink("ar4_ee_link"); 
+            move_group_->setGoalJointTolerance(0.01);
+            move_group_->setWorkspace(-1.5, -1.5, -0.5, 1.5, 1.5, 2.5);
+
+            RCLCPP_INFO(this->get_logger(), "MoveGroupInterface Ready for AR4.");
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(this->get_logger(), "MoveIt init failed: %s", e.what());
+        }
+    }
+
+private:
+    rclcpp_action::Server<ExecuteTask>::SharedPtr action_server_;
+    rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr gripper_client_;
+    std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
+    bool use_sim_; 
+
+    rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID &, std::shared_ptr<const ExecuteTask::Goal> goal) {
+        RCLCPP_INFO(this->get_logger(), "Received AR4 task: %s", goal->task_type.c_str());
+        return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+    }
+
+    rclcpp_action::CancelResponse handle_cancel(const std::shared_ptr<GoalHandleExecuteTask>) {
+        RCLCPP_INFO(this->get_logger(), "Cancel requested");
+        if (move_group_) move_group_->stop();
+        return rclcpp_action::CancelResponse::ACCEPT;
+    }
+
+    void handle_accepted(const std::shared_ptr<GoalHandleExecuteTask> goal_handle) {
+        std::thread{std::bind(&AR4TaskServer::execute, this, _1), goal_handle}.detach();
+    }
+
+    // --- HELPER MACRO: Safely exit if Supervisor cancels us mid-execution ---
+    #define HANDLE_FAILURE(error_msg) \
+        result->success = false; \
+        if (goal_handle->is_canceling()) { \
+            result->error_message = "Canceled by Supervisor"; \
+            goal_handle->canceled(result); \
+            RCLCPP_WARN(this->get_logger(), "Task canceled gracefully. Yielding to MTC."); \
+        } else { \
+            result->error_message = error_msg; \
+            goal_handle->abort(result); \
+        } \
+        return;
+
+    void execute(const std::shared_ptr<GoalHandleExecuteTask> goal_handle)
+    {
+        const auto goal = goal_handle->get_goal();
+        auto feedback = std::make_shared<ExecuteTask::Feedback>();
+        auto result = std::make_shared<ExecuteTask::Result>();
+
+        if (!move_group_) { HANDLE_FAILURE("MoveGroup not initialized!"); }
+
+        if (goal->task_type == "PICK")
+        {
+            if (!control_gripper(true, goal_handle)) { HANDLE_FAILURE("PICK: Failed to open gripper"); }
+
+            feedback->current_status = "MOVING_TO_PREGRASP";
+            goal_handle->publish_feedback(feedback);
+            geometry_msgs::msg::Pose pregrasp = goal->target_pose;
+            pregrasp.position.z = pregrasp.position.z + 0.1;
+            if (!move_to_pose(pregrasp, goal_handle)) { HANDLE_FAILURE("PICK: Failed to reach pregrasp"); }
+
+            feedback->current_status = "MOVING_TO_TARGET";
+            goal_handle->publish_feedback(feedback);
+            if (!move_to_pose(goal->target_pose, goal_handle)) { HANDLE_FAILURE("PICK: Failed to reach pose"); }
+
+            if (!control_gripper(false, goal_handle)) { HANDLE_FAILURE("PICK: Failed to grasp object"); }
+
+            geometry_msgs::msg::Pose postgrasp = goal->target_pose;
+            postgrasp.position.z = postgrasp.position.z + 0.1;
+            if (!move_to_pose(postgrasp, goal_handle)) { HANDLE_FAILURE("PICK: Failed to reach postgrasp"); }
+        }
+        else if (goal->task_type == "PLACE")
+        {
+            feedback->current_status = "MOVING_TO_PRE_PLACE";
+            goal_handle->publish_feedback(feedback);
+            geometry_msgs::msg::Pose preplace = goal->target_pose;
+            preplace.position.z = preplace.position.z + 0.1;
+            if (!move_to_pose(preplace, goal_handle)) { HANDLE_FAILURE("PLACE: Failed to reach pre place"); }
+
+            feedback->current_status = "MOVING_TO_PLACE";
+            goal_handle->publish_feedback(feedback);
+            if (!move_to_pose(goal->target_pose, goal_handle)) { HANDLE_FAILURE("PLACE: Failed to reach pose"); }
+
+            feedback->current_status = "RELEASING_OBJECT";
+            goal_handle->publish_feedback(feedback);
+            if (!control_gripper(true, goal_handle)) { HANDLE_FAILURE("PLACE: Failed to release object"); }
+            
+            feedback->current_status = "RETURNING_HOME";
+            goal_handle->publish_feedback(feedback);
+            move_to_named_target("home", goal_handle); 
+        }
+        else if (goal->task_type == "HOME")
+        {
+            if (!move_to_named_target("home", goal_handle)) { HANDLE_FAILURE("HOME: Failed to reach home"); }
+        }
+
+        // If we reach here naturally, ensure we haven't been canceled at the last millisecond
+        if (goal_handle->is_canceling()) { HANDLE_FAILURE("Canceled at finish"); }
+
+        result->success = true;
+        result->error_message = "None";
+        goal_handle->succeed(result);
+        RCLCPP_INFO(this->get_logger(), "AR4 Task Completed Successfully.");
+    }
+
+    bool move_to_pose(const geometry_msgs::msg::Pose & target, std::shared_ptr<GoalHandleExecuteTask> goal_handle)
+    {
+        if (goal_handle->is_canceling()) return false;
+
+        move_group_->setPoseTarget(target);
+        move_group_->setStartStateToCurrentState();
+        moveit::planning_interface::MoveGroupInterface::Plan plan;
+        
+        auto error_code = move_group_->plan(plan);
+        
+        // CRITICAL: Check if Supervisor canceled us WHILE we were doing the heavy math
+        if (goal_handle->is_canceling()) {
+            move_group_->clearPoseTargets();
+            return false; 
+        }
+        
+        if (error_code == moveit::core::MoveItErrorCode::SUCCESS) {
+            bool success = (move_group_->execute(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+            move_group_->clearPoseTargets();
+            return success;
+        }
+        
+        move_group_->clearPoseTargets();
+        return false;
+    }
+
+    bool move_to_named_target(const std::string & name, std::shared_ptr<GoalHandleExecuteTask> goal_handle)
+    {
+        if (goal_handle->is_canceling()) return false;
+        move_group_->setNamedTarget(name);
+        move_group_->setStartStateToCurrentState();
+        moveit::planning_interface::MoveGroupInterface::Plan plan;
+        
+        if (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS) {
+            if (goal_handle->is_canceling()) return false; // CRITICAL CANCEL CHECK
+            return (move_group_->execute(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+        }
+        return false;
+    }
+
+    bool control_gripper(bool open, std::shared_ptr<GoalHandleExecuteTask> goal_handle)
+    {
+        if (use_sim_) {
+            RCLCPP_INFO(this->get_logger(), "SIMULATION MODE: Pretending to %s gripper.", open ? "OPEN" : "CLOSE");
+            // Break the sleep into chunks so we can check for cancels instantly
+            for (int i = 0; i < 5; i++) {
+                if (goal_handle->is_canceling()) return false;
+                std::this_thread::sleep_for(std::chrono::milliseconds(100)); 
+            }
+            return true; 
+        }
+
+        if (!gripper_client_->wait_for_service(std::chrono::seconds(2))) return false;
+        auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
+        request->data = open; 
+        auto future = gripper_client_->async_send_request(request);
+        
+        if (future.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+            return future.get()->success;
+        }
+        return false;
+    }
+};
+
+int main(int argc, char ** argv) {
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<AR4TaskServer>();
+    node->init();
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+    return 0;
+}

@@ -759,7 +759,7 @@ Task HybridMTCController::create_safe_resolution_task(
     move_ar4->setIKFrame("ar4_ee_link");
     
     geometry_msgs::msg::PoseStamped ar4_stamped;
-    ar4_stamped.header.frame_id = "base_link";
+    ar4_stamped.header.frame_id = "abb_table";
     ar4_stamped.pose = ar4_target;
     move_ar4->setGoal(ar4_stamped);
     t.add(std::move(move_ar4));
@@ -770,7 +770,7 @@ Task HybridMTCController::create_safe_resolution_task(
     move_abb->setIKFrame("tool0");
     
     geometry_msgs::msg::PoseStamped abb_stamped;
-    abb_stamped.header.frame_id = "base_link";
+    abb_stamped.header.frame_id = "abb_table";
     abb_stamped.pose = abb_target;
     move_abb->setGoal(abb_stamped);
     t.add(std::move(move_abb));
