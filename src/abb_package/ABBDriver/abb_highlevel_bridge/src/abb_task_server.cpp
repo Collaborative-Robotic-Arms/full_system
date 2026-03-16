@@ -223,6 +223,32 @@ private:
 
             if (!move_to_named_target("home", goal_handle)) { HANDLE_FAILURE("HOME: Failed to reach home"); }
         }
+        else if (goal->task_type == "INTERMEDIATE_GIVE")
+        {
+            feedback->current_status = "MOVING_TO_HANDOVER_ZONE";
+            goal_handle->publish_feedback(feedback);
+            if (!move_to_pose(goal->target_pose, goal_handle)) { HANDLE_FAILURE("INTERMEDIATE_GIVE: Failed to reach pose"); }
+        }
+        else if (goal->task_type == "INTERMEDIATE_TAKE")
+        {
+            feedback->current_status = "OPENING_GRIPPER_FOR_TAKE";
+            goal_handle->publish_feedback(feedback);
+            if (!control_gripper(true)) { HANDLE_FAILURE("INTERMEDIATE_TAKE: Failed to open gripper"); }
+
+            feedback->current_status = "MOVING_TO_HANDOVER_GRASP";
+            goal_handle->publish_feedback(feedback);
+            if (!move_to_pose(goal->target_pose, goal_handle)) { HANDLE_FAILURE("INTERMEDIATE_TAKE: Failed to reach pose"); }
+
+            feedback->current_status = "CLOSING_GRIPPER_TO_TAKE";
+            goal_handle->publish_feedback(feedback);
+            if (!control_gripper(false)) { HANDLE_FAILURE("INTERMEDIATE_TAKE: Failed to grasp"); }
+        }
+        else if (goal->task_type == "RELEASE")
+        {
+            feedback->current_status = "RELEASING_BRICK";
+            goal_handle->publish_feedback(feedback);
+            if (!control_gripper(true)) { HANDLE_FAILURE("RELEASE: Failed to open gripper"); }
+        }
         else {
             HANDLE_FAILURE("Task " + goal->task_type + " not implemented for ABB");
         }

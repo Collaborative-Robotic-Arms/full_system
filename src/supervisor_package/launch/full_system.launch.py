@@ -1,8 +1,9 @@
 import os
 import yaml
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
@@ -21,11 +22,31 @@ def generate_launch_description():
     # 1. Configuration & Arguments
     # ---------------------------------------------------------
     use_sim_time = LaunchConfiguration('use_sim_time')
+    test_scenario = LaunchConfiguration('test_scenario')
     
     declare_use_sim_time = DeclareLaunchArgument(
         'use_sim_time',
         default_value='true',
         description='Use simulation (Gazebo) clock if true'
+    )
+    
+    declare_test_scenario = DeclareLaunchArgument(
+        'test_scenario',
+        default_value='1',
+        description='Test scenario (1=parallel no collision, 2=parallel with collision, 3=AR4→ABB handover, 4=ABB→AR4 handover)'
+    )
+
+    # ---------------------------------------------------------
+    # MoveIt Dual Arms Launch (Spawns arms in Gazebo)
+    # ---------------------------------------------------------
+    dual_arms_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([
+                get_package_share_directory('dual_arms'),
+                'launch',
+                'moveit_dualarms.launch.py'
+            ])
+        )
     )
 
     # Load Kinematics (The "Math Book" for the robot)
@@ -105,10 +126,15 @@ def generate_launch_description():
     # ---------------------------------------------------------
     return LaunchDescription([
         declare_use_sim_time,
+        declare_test_scenario,
+        # Start MoveIt + Gazebo with dual arms
+        dual_arms_launch,
+        # Start task servers (wait for MoveIt)
         ar4_task_server_node,
         # ar4_controller,
         # abb_controller,
         abb_task_server_node,
         # visp_node,
+        # Start supervisor
         supervisor_node
     ])

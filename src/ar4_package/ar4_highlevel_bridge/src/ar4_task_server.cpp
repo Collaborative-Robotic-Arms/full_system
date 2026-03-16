@@ -150,6 +150,37 @@ private:
         {
             if (!move_to_named_target("home", goal_handle)) { HANDLE_FAILURE("HOME: Failed to reach home"); }
         }
+        else if (goal->task_type == "INTERMEDIATE_GIVE")
+        {
+            // Move to handover zone and wait (keep gripper closed holding the brick)
+            feedback->current_status = "MOVING_TO_HANDOVER_ZONE";
+            goal_handle->publish_feedback(feedback);
+            if (!move_to_pose(goal->target_pose, goal_handle)) { HANDLE_FAILURE("INTERMEDIATE_GIVE: Failed to reach pose"); }
+        }
+        else if (goal->task_type == "INTERMEDIATE_TAKE")
+        {
+            // 1. Open gripper to prepare for handover
+            feedback->current_status = "OPENING_GRIPPER_FOR_TAKE";
+            goal_handle->publish_feedback(feedback);
+            if (!control_gripper(true, goal_handle)) { HANDLE_FAILURE("INTERMEDIATE_TAKE: Failed to open gripper"); }
+
+            // 2. Move precisely to the grasp point on the hovering brick
+            feedback->current_status = "MOVING_TO_HANDOVER_GRASP";
+            goal_handle->publish_feedback(feedback);
+            if (!move_to_pose(goal->target_pose, goal_handle)) { HANDLE_FAILURE("INTERMEDIATE_TAKE: Failed to reach pose"); }
+
+            // 3. Close gripper to secure the brick
+            feedback->current_status = "CLOSING_GRIPPER_TO_TAKE";
+            goal_handle->publish_feedback(feedback);
+            if (!control_gripper(false, goal_handle)) { HANDLE_FAILURE("INTERMEDIATE_TAKE: Failed to grasp"); }
+        }
+        else if (goal->task_type == "RELEASE")
+        {
+            // Tell the giving arm to let go after the taking arm has secured it
+            feedback->current_status = "RELEASING_BRICK";
+            goal_handle->publish_feedback(feedback);
+            if (!control_gripper(true, goal_handle)) { HANDLE_FAILURE("RELEASE: Failed to open gripper"); }
+        }
 
         // If we reach here naturally, ensure we haven't been canceled at the last millisecond
         if (goal_handle->is_canceling()) { HANDLE_FAILURE("Canceled at finish"); }

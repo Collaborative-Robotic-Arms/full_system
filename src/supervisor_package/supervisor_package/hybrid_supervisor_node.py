@@ -124,8 +124,15 @@ class HybridAssemblySupervisor(Node):
             callback_group=self.cb_group
         )
 
+        # --- CONTINUOUS PLAN CHECKING ---
+        self.plan_check_timer = None
+        self.check_for_new_plans = True
+        self.last_plan_count = 0
+
         self.get_logger().info('Hybrid Assembly Supervisor Initialized')
         self.timer = self.create_timer(1.0, self.state_machine_loop, callback_group=self.cb_group)
+        # Start periodic plan checking every 5 seconds
+        self.plan_check_timer = self.create_timer(5.0, self.poll_for_new_plans, callback_group=self.cb_group)
 
     # ========================================================================
     # ZONE DETECTION AND MODE SWITCHING
@@ -190,6 +197,50 @@ class HybridAssemblySupervisor(Node):
                 self.get_logger().info('MTC handover mode activated for collaborative task')
             else:
                 self.get_logger().info('Switched back to standard multithreaded control')
+
+    # ========================================================================
+    # CONTINUOUS PLAN CHECKING
+    # ========================================================================
+
+    def poll_for_new_plans(self):
+        """Timer callback to continuously check for new assembly plans from GUI"""
+        self.executor.create_task(self._async_poll_for_new_plans())
+
+    async def _async_poll_for_new_plans(self):
+        """Asynchronously check for new assembly plans from GUI"""
+        try:
+            if not self.gui_client.wait_for_service(timeout_sec=0.5):
+                return
+
+            req = GetAssemblyPlan.Request()
+            result = await self.gui_client.call_async(req)
+            
+            if result is not None and len(result.plan) > 0:
+                new_plan_count = len(result.plan)
+                
+                # Only log and process if plan has changed
+                if new_plan_count != self.last_plan_count:
+                    self.get_logger().info(f'📋 New assembly plan detected! {new_plan_count} brick(s) available')
+                    self.last_plan_count = new_plan_count
+                    
+                    # Merge new bricks into the queue (avoid duplicates by ID)
+                    existing_ids = {brick.id for brick in self.assembly_queue}
+                    new_bricks = [b for b in result.plan if b.id not in existing_ids]
+                    
+                    if new_bricks:
+                        self.assembly_queue.extend(new_bricks)
+                        self.get_logger().info(f'✅ Added {len(new_bricks)} new brick(s) to processing queue. Total: {len(self.assembly_queue)}')
+                        
+                        # If system was idle/done, resume processing
+                        if self.state == "DONE":
+                            self.get_logger().info('🔄 Resuming assembly from DONE state...')
+                            self.state = "DETECT"
+                    else:
+                        self.get_logger().info(f'Plan already in queue. Monitoring for updates...')
+        
+        except Exception as e:
+            # Don't spam logs with connection errors - silently continue
+            pass
 
     # ========================================================================
     # HELPER METHODS FOR HANDOVER DECISIONS
@@ -463,8 +514,8 @@ class HybridAssemblySupervisor(Node):
 
             elif self.state == "PROCESS_NEXT":
                 if not self.assembly_queue and not self.ar4_busy and not self.abb_busy:
-                    self.get_logger().info('✅ All assembly tasks complete!')
-                    self.state = "DONE"
+                    self.get_logger().info('✅ All assembly tasks complete! Waiting for new plans...')
+                    self.state = "WAIT_FOR_NEW_PLAN"
                     return
 
                 # --- AR4 DISPATCHER ---
@@ -533,7 +584,11 @@ class HybridAssemblySupervisor(Node):
                             f'🔄 HANDOVER detected: {self.current_brick.start_side} → {self.current_brick.target_side}'
                         )
                         self.operation_type = "HANDOVER"
-                        self.state = "AR4_PICK_FOR_HANDOVER"
+                        # Route to appropriate arm's pickup
+                        if self.current_brick.start_side == "AR4":
+                            self.state = "AR4_PICK_FOR_HANDOVER"
+                        else:
+                            self.state = "ABB_PICK_FOR_HANDOVER"
                         
                     elif len(self.assembly_queue) > 0:
                         self.get_logger().info(f'⚡ Multiple bricks detected - checking for parallel execution')
@@ -611,6 +666,156 @@ class HybridAssemblySupervisor(Node):
                     self.get_logger().info('✅ TRUE PARALLEL EXECUTION COMPLETE!')
                     self.state = "PROCESS_NEXT"
 
+            # ================================================================
+            # SEQUENTIAL HANDOVER STATES
+            # ================================================================
+            elif self.state in ["AR4_PICK_FOR_HANDOVER", "ABB_PICK_FOR_HANDOVER"]:
+                is_ar4 = (self.state == "AR4_PICK_FOR_HANDOVER")
+                client = self.ar4_client if is_ar4 else self.abb_client
+                arm_name = "AR4" if is_ar4 else "ABB"
+                
+                self.get_logger().info(f'🔄 [HANDOVER] {arm_name} picking brick {self.current_brick.id}')
+                if is_ar4:
+                    self.ar4_stage = "PICK"
+                else:
+                    self.abb_stage = "PICK"
+                
+                # 1. Standard PICK (C++ handles prepick, pick, and gripper)
+                pick_goal = ExecuteTask.Goal(task_type="PICK", target_pose=self.current_grasp_point.pose)
+                result = await self.send_action_goal(client, pick_goal)
+                if not result or not result.success:
+                    self.get_logger().error(f'{arm_name} pick failed during handover')
+                    self.state = "RECOVERY"
+                    return
+                
+                # 2. Move to Handover Zone and HOLD
+                self.get_logger().info(f'🔄 [HANDOVER] {arm_name} moving to handover zone')
+                if is_ar4:
+                    self.ar4_stage = "MOVE_TO_HANDOVER"
+                else:
+                    self.abb_stage = "MOVE_TO_HANDOVER"
+                    
+                give_goal = ExecuteTask.Goal(task_type="INTERMEDIATE_GIVE", target_pose=self.handover_pose)
+                result = await self.send_action_goal(client, give_goal)
+                if not result or not result.success:
+                    self.get_logger().error(f'{arm_name} failed to reach handover zone')
+                    self.state = "RECOVERY"
+                    return
+                
+                self.get_logger().info(f'✅ {arm_name} at handover zone, holding brick {self.current_brick.id}')
+                if is_ar4:
+                    self.ar4_stage = "HOLDING_AT_HANDOVER"
+                else:
+                    self.abb_stage = "HOLDING_AT_HANDOVER"
+                    
+                self.state = "QUERY_HANDOVER_GRASP"
+
+            elif self.state == "QUERY_HANDOVER_GRASP":
+                """Query grasping point for the brick that the waiting arm is holding"""
+                waiting_arm = self.current_brick.start_side
+                receiving_arm = self.current_brick.target_side
+                self.get_logger().info(f'🔄 [HANDOVER] Querying grasp for brick in {waiting_arm} gripper')
+                
+                if not self.grasp_pipeline_client.wait_for_service(timeout_sec=2.0):
+                    self.get_logger().error('Grasp Pipeline service not available!')
+                    self.state = "RECOVERY"
+                    return
+                
+                grasp_req = GetGrasp.Request()
+                grasp_req.brick_index = str(self.current_brick.id)
+                
+                grasp_result = await self.grasp_pipeline_client.call_async(grasp_req)
+                
+                if grasp_result.success:
+                    # Transform grasp point to standard frame
+                    grasp_for_receiver = grasp_result.grasp_point
+                    grasp_for_receiver.pose = self.transform_pose_to_abb(grasp_for_receiver.pose)
+                    grasp_for_receiver.pose.position.z = 0.22
+                    
+                    self.abb_grasp_point_for_handover = grasp_for_receiver
+                    self.get_logger().info(f'✅ Grasp point obtained. {receiving_arm} can now approach.')
+                    self.state = "RETRIEVE_FROM_HANDOVER"
+                else:
+                    self.get_logger().error('Failed to get grasp point for handover')
+                    self.state = "RECOVERY"
+                    return
+
+            elif self.state == "RETRIEVE_FROM_HANDOVER":
+                waiting_arm = self.current_brick.start_side
+                receiving_arm = self.current_brick.target_side
+                
+                self.get_logger().info(f'🔄 [HANDOVER] {receiving_arm} moving to handover zone to retrieve brick')
+                
+                receiver_client = self.ar4_client if receiving_arm == "AR4" else self.abb_client
+                giver_client = self.ar4_client if waiting_arm == "AR4" else self.abb_client
+                
+                if receiving_arm == "AR4":
+                    self.ar4_stage = "MOVE_TO_HANDOVER"
+                else:
+                    self.abb_stage = "MOVE_TO_HANDOVER"
+                
+                # 1. Receiver moves in, opens gripper, reaches grasp point, and closes gripper
+                take_goal = ExecuteTask.Goal(task_type="INTERMEDIATE_TAKE", target_pose=self.abb_grasp_point_for_handover.pose)
+                result = await self.send_action_goal(receiver_client, take_goal)
+                if not result or not result.success:
+                    self.get_logger().error(f'{receiving_arm} failed to reach handover zone / grasp brick')
+                    self.state = "RECOVERY"
+                    return
+                
+                # 2. Giver releases the brick
+                self.get_logger().info(f'🔄 [HANDOVER] {waiting_arm} releasing brick')
+                release_goal = ExecuteTask.Goal(task_type="RELEASE")
+                await self.send_action_goal(giver_client, release_goal)
+                
+                # 3. Giver retracts to home (ready for next plan)
+                self.get_logger().info(f'🔄 [HANDOVER] {waiting_arm} retracting from handover zone')
+                home_goal = ExecuteTask.Goal(task_type="HOME")
+                await self.send_action_goal(giver_client, home_goal)
+                
+                self.get_logger().info(f'✅ Brick handover complete. {receiving_arm} now has the brick.')
+                
+                if waiting_arm == "AR4":
+                    self.ar4_stage = "DONE"
+                else:
+                    self.abb_stage = "DONE"
+                    
+                if receiving_arm == "AR4":
+                    self.ar4_stage = "HOLDING_AT_HANDOVER"
+                else:
+                    self.abb_stage = "HOLDING_AT_HANDOVER"
+                
+                self.state = "PLACE_FROM_HANDOVER"
+
+            elif self.state == "PLACE_FROM_HANDOVER":
+                receiving_arm = self.current_brick.target_side
+                self.get_logger().info(f'🔄 [HANDOVER] {receiving_arm} moving to placement location')
+                
+                is_ar4_placing = (receiving_arm == "AR4")
+                placer_client = self.ar4_client if is_ar4_placing else self.abb_client
+                
+                if is_ar4_placing:
+                    self.ar4_stage = "PLACE"
+                else:
+                    self.abb_stage = "PLACE"
+                
+                # 1. Receiver places the brick (C++ handles pre-place, place, gripper release, AND homing)
+                place_goal = ExecuteTask.Goal(task_type="PLACE", target_pose=self.current_brick.place_pose)
+                place_goal.target_pose.position.z = 0.22 if is_ar4_placing else 0.24
+                
+                result = await self.send_action_goal(placer_client, place_goal)
+                if not result or not result.success:
+                    self.get_logger().error(f'{receiving_arm} failed to place brick')
+                    self.state = "RECOVERY"
+                    return
+                
+                self.get_logger().info(f'✅ Handover sequence complete. Brick placed on grid by {receiving_arm}.')
+                
+                if is_ar4_placing:
+                    self.ar4_stage = "DONE"
+                else:
+                    self.abb_stage = "DONE"
+                
+                self.state = "PROCESS_NEXT"
             # ================================================================
             # MTC-BASED HANDOVER STATE
             # ================================================================
@@ -791,10 +996,23 @@ class HybridAssemblySupervisor(Node):
                 await self.ros_sleep(3.0)
                 self.state = "TRIGGER_MTC_SAFE_RESOLUTION"
 
+            elif self.state == "WAIT_FOR_NEW_PLAN":
+                """Supervisor is idle, waiting for new plans to be posted"""
+                self.get_logger().info('🔄 Supervisor idle - monitoring for new assembly plans...')
+                await self.ros_sleep(2.0)  # Check every 2 seconds
+                
+                # Check if new bricks have been added to the queue
+                if self.assembly_queue and not self.ar4_busy and not self.abb_busy:
+                    self.get_logger().info(f'📋 New bricks detected! Resuming assembly...')
+                    self.state = "DETECT"
+                    return
+
         except Exception as e:
             self.get_logger().error(f'State machine error: {e}')
 
-        if self.state != "DONE":
+        if self.state != "DONE" and self.state != "WAIT_FOR_NEW_PLAN":
+            self.timer = self.create_timer(0.1, self.state_machine_loop, callback_group=self.cb_group)
+        elif self.state == "WAIT_FOR_NEW_PLAN":
             self.timer = self.create_timer(0.1, self.state_machine_loop, callback_group=self.cb_group)
 
     # ========================================================================

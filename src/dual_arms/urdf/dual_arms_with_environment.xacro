@@ -74,7 +74,7 @@
     <minDepth>0.001</minDepth>
     <maxVel>0.0</maxVel>
   </gazebo>
-    
+<!--     
    <gazebo>
     <plugin filename="gz-sim-vacuum-gripper-system"
             name="gz::sim::systems::VacuumGripper">
@@ -93,6 +93,6 @@
         <suction_on_topic>/abb/gripper/lock_trigger</suction_on_topic>
         <contact_sensor_topic>/abb/gripper/contact</contact_sensor_topic>
     </plugin>
-  </gazebo>
+  </gazebo> -->
   
 </robot>

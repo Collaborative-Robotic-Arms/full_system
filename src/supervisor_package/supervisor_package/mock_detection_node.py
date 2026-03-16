@@ -2,6 +2,11 @@
 """
 Mock Detection Node
 Provides brick detection service without requiring actual vision system
+Supports 4 test scenarios:
+1. Parallel execution - no collision
+2. Parallel with collision risk
+3. AR4 hands over to ABB
+4. ABB hands over to AR4
 """
 
 import rclpy
@@ -10,7 +15,7 @@ from dual_arms_msgs.srv import DetectBricks
 from dual_arms_msgs.msg import Brick
 from geometry_msgs.msg import Pose, Point, Quaternion
 from std_msgs.msg import Header
-import random
+import os
 
 
 class MockDetectionNode(Node):
@@ -25,67 +30,131 @@ class MockDetectionNode(Node):
             self.detect_bricks_callback
         )
         
-        self.get_logger().info('Mock Detection Node started - serving /detect_bricks')
+        # Get scenario from environment variable (default to scenario 1)
+        self.scenario = int(os.getenv('TEST_SCENARIO', '1'))
+        
+        self.get_logger().info(f'Mock Detection Node started - Scenario {self.scenario} - serving /detect_bricks')
     
-    def detect_bricks_callback(self, request, response):
-        """
-        Generate mock brick detections
-        
-        Returns:
-            5-7 bricks randomly distributed between AR4 and ABB starting positions
-        """
-        self.get_logger().info('Received detect_bricks request')
-        
-        # Brick type constants
-        BRICK_TYPES = [0, 1, 2, 3]  # I_BRICK=0, L_BRICK=1, T_BRICK=2, Z_BRICK=3
-        BRICK_TYPE_NAMES = ["I_BRICK", "L_BRICK", "T_BRICK", "Z_BRICK"]
-        
-        # Side constants
-        ABB = 0
-        AR4 = 1
-        
-        # Generate 5-7 mock bricks
-        num_bricks = random.randint(5, 7)
+    def _scenario_1_detections(self):
+        """Scenario 1: Parallel execution - no collision"""
         bricks = []
         
-        for i in range(num_bricks):
-            brick = Brick()
-            brick.header = Header()
-            brick.header.stamp = self.get_clock().now().to_msg()
-            brick.header.frame_id = "abb_table"
-            
-            brick.id = i
-            
-            # Random brick type (0-3)
-            brick.type = random.choice(BRICK_TYPES)
-            brick_type_name = BRICK_TYPE_NAMES[brick.type]
-            
-            # Alternate between AR4 and ABB as starting position
-            # Alternate between AR4 and ABB as starting position
-            brick.side = AR4 if i % 2 == 0 else ABB
-            side_name = "AR4" if brick.side == AR4 else "ABB"
-            
-            # Match the detection coordinates to the grasp coordinates
-            brick.pose = Pose()
-            if brick.side == AR4:
-                brick.pose.position = Point(x=0.65, y=0.10, z=0.05)
-                brick.pose.orientation = Quaternion(x=0.707, y=0.707, z=0.0, w=0.0)
-            else:
-                brick.pose.position = Point(x=0.40, y=-0.10, z=0.05)
-                brick.pose.orientation = Quaternion(x=0.0, y=0.707, z=0.0, w=0.707)
-            
-            bricks.append(brick)
-            self.get_logger().info(
-                f"  Brick {i}: {brick_type_name} on {side_name} at ({brick.pose.position.x:.2f}, {brick.pose.position.y:.2f}, {brick.pose.position.z:.2f})"
-            )
+        # Brick 0 (AR4 side) - PROVEN WORKING COORDINATES
+        b1 = Brick()
+        b1.header = Header()
+        b1.header.stamp = self.get_clock().now().to_msg()
+        b1.header.frame_id = "abb_table"
+        b1.id = 0
+        b1.side = 1  # AR4
+        b1.pose = Pose(position=Point(x=0.65, y=0.10, z=0.05))
+        b1.pose.orientation = Quaternion(x=0.707, y=0.707, z=0.0, w=0.0)
+        bricks.append(b1)
+        
+        # Brick 1 (ABB side) - PROVEN WORKING COORDINATES
+        b2 = Brick()
+        b2.header = Header()
+        b2.header.stamp = self.get_clock().now().to_msg()
+        b2.header.frame_id = "abb_table"
+        b2.id = 1
+        b2.side = 0  # ABB
+        b2.pose = Pose(position=Point(x=0.40, y=-0.10, z=0.05))
+        b2.pose.orientation = Quaternion(x=0.0, y=0.707, z=0.0, w=0.707)
+        bricks.append(b2)
+        
+        handover = Pose(position=Point(x=0.55, y=0.0, z=0.35))
+        return bricks, handover
+    
+    def _scenario_2_detections(self):
+        """Scenario 2: Parallel with collision risk"""
+        bricks = []
+        
+        # Brick 0 (AR4, slightly toward center)
+        b1 = Brick()
+        b1.header = Header()
+        b1.header.stamp = self.get_clock().now().to_msg()
+        b1.header.frame_id = "abb_table"
+        b1.id = 0
+        b1.side = 1  # AR4
+        b1.pose = Pose(position=Point(x=0.60, y=0.05, z=0.05))
+        b1.pose.orientation = Quaternion(x=0.707, y=0.707, z=0.0, w=0.0)
+        bricks.append(b1)
+        
+        # Brick 1 (ABB, also moving toward center - COLLISION RISK)
+        b2 = Brick()
+        b2.header = Header()
+        b2.header.stamp = self.get_clock().now().to_msg()
+        b2.header.frame_id = "abb_table"
+        b2.id = 1
+        b2.side = 0  # ABB
+        b2.pose = Pose(position=Point(x=0.50, y=-0.05, z=0.05))
+        b2.pose.orientation = Quaternion(x=0.0, y=0.707, z=0.0, w=0.707)
+        bricks.append(b2)
+        
+        # Collision zone in the middle
+        handover = Pose(position=Point(x=0.50, y=0.0, z=0.35))
+        return bricks, handover
+    
+    def _scenario_3_detections(self):
+        """Scenario 3: AR4 hands over to ABB"""
+        bricks = []
+        
+        # Single brick for AR4 to pick (AR4 proven coordinates)
+        b1 = Brick()
+        b1.header = Header()
+        b1.header.stamp = self.get_clock().now().to_msg()
+        b1.header.frame_id = "abb_table"
+        b1.id = 0
+        b1.side = 1  # AR4 picks
+        b1.pose = Pose(position=Point(x=0.65, y=0.10, z=0.05))
+        b1.pose.orientation = Quaternion(x=0.707, y=0.707, z=0.0, w=0.0)
+        bricks.append(b1)
+        
+        # Handover zone between the arms
+        handover = Pose(position=Point(x=0.55, y=0.0, z=0.35))
+        return bricks, handover
+    
+    def _scenario_4_detections(self):
+        """Scenario 4: ABB hands over to AR4"""
+        bricks = []
+        
+        # Single brick for ABB to pick (ABB proven coordinates)
+        b1 = Brick()
+        b1.header = Header()
+        b1.header.stamp = self.get_clock().now().to_msg()
+        b1.header.frame_id = "abb_table"
+        b1.id = 0
+        b1.side = 0  # ABB picks
+        b1.pose = Pose(position=Point(x=0.40, y=-0.10, z=0.05))
+        b1.pose.orientation = Quaternion(x=0.0, y=0.707, z=0.0, w=0.707)
+        bricks.append(b1)
+        
+        # Handover zone between the arms
+        handover = Pose(position=Point(x=0.55, y=0.0, z=0.35))
+        return bricks, handover
+    
+    def detect_bricks_callback(self, request, response):
+        """Generate mock brick detections based on scenario"""
+        self.get_logger().info(f'[Scenario {self.scenario}] Received detect_bricks request')
+        
+        # Select detections based on scenario
+        if self.scenario == 1:
+            bricks, handover = self._scenario_1_detections()
+            self.get_logger().info('✅ SCENARIO 1: Detecting 2 bricks (AR4 and ABB - separate workspace)')
+        elif self.scenario == 2:
+            bricks, handover = self._scenario_2_detections()
+            self.get_logger().info('⚠️  SCENARIO 2: Detecting 2 bricks (moving toward collision zone)')
+        elif self.scenario == 3:
+            bricks, handover = self._scenario_3_detections()
+            self.get_logger().info('🔄 SCENARIO 3: Detecting 1 brick (AR4 → ABB handover)')
+        elif self.scenario == 4:
+            bricks, handover = self._scenario_4_detections()
+            self.get_logger().info('🔄 SCENARIO 4: Detecting 1 brick (ABB → AR4 handover)')
+        else:
+            bricks, handover = self._scenario_1_detections()
+            self.get_logger().warn(f'Unknown scenario {self.scenario}, using default')
         
         response.bricks = bricks
-        
-        # Mock handover pose - neutral position between both arms
-        response.handover_pose = Pose()
-        response.handover_pose.position = Point(x=0.55, y=0.0, z=0.4)
-        response.handover_pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
-        
+        response.handover_pose = handover
         response.success = True
         
         self.get_logger().info(f'Returning {len(bricks)} detected bricks')
