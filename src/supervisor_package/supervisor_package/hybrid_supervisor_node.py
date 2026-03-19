@@ -16,7 +16,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 import tf2_geometry_msgs
 from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import TransformStamped, Pose
+from geometry_msgs.msg import Quaternion, TransformStamped, Pose
 # Custom Interfaces
 from supervisor_package.srv import GetAssemblyPlan
 from supervisor_package.action import MoveToPose, AlignToTarget
@@ -456,6 +456,10 @@ class HybridAssemblySupervisor(Node):
     # ========================================================================
 
     def zone_status_callback(self, msg):
+        # COLLABORATIVE MUTING: Ignore proximity alerts during intentional handovers
+        if self.operation_type == "HANDOVER":
+            return
+
         if "COLLISION_WARNING" in msg.data and not self.emergency_stop and not self.mtc_active and not self.ar4_recovering and not self.abb_recovering:
             # NEW: Log exact state upon entry
             self.get_logger().warn(f"⚠️ PROXIMITY ALERT! Interrupting AR4 in [{self.ar4_stage}] and ABB in [{self.abb_stage}]")
@@ -584,10 +588,24 @@ class HybridAssemblySupervisor(Node):
                             f'🔄 HANDOVER detected: {self.current_brick.start_side} → {self.current_brick.target_side}'
                         )
                         self.operation_type = "HANDOVER"
-                        # Route to appropriate arm's pickup
+                        self.ar4_current_brick = self.current_brick
+                        self.abb_current_brick = self.current_brick
+                        
+                        # ==========================================
+                        # HARDCODE THE INTERMEDIATE WAITING POSE
+                        # ==========================================
+                        self.handover_pose = Pose()
+                        # Set your predetermined XYZ coordinates here
+                        self.handover_pose.position.x = 0.58
+                        self.handover_pose.position.y = 0.08
+                        self.handover_pose.position.z = 0.32
+                        
+                        # Route to appropriate arm's pickup and set holding orientation
                         if self.current_brick.start_side == "AR4":
+                            self.handover_pose.orientation = Quaternion(x=0.707, y=0.707, z=0.0, w=0.0)
                             self.state = "AR4_PICK_FOR_HANDOVER"
                         else:
+                            self.handover_pose.orientation = Quaternion(x=0.0, y=0.707, z=0.0, w=0.707)
                             self.state = "ABB_PICK_FOR_HANDOVER"
                         
                     elif len(self.assembly_queue) > 0:
@@ -681,13 +699,20 @@ class HybridAssemblySupervisor(Node):
                     self.abb_stage = "PICK"
                 
                 # 1. Standard PICK (C++ handles prepick, pick, and gripper)
-                pick_goal = ExecuteTask.Goal(task_type="PICK", target_pose=self.current_grasp_point.pose)
+                # 1. Standard PICK from the table starting position
+                pick_goal = ExecuteTask.Goal(task_type="PICK", target_pose=self.current_brick.pickup_pose)
+                pick_goal.target_pose.position.z = 0.22 # Ensure Z is adjusted for table pickup
                 result = await self.send_action_goal(client, pick_goal)
                 if not result or not result.success:
-                    self.get_logger().error(f'{arm_name} pick failed during handover')
+                    # 1. Check if the failure was intentional (MTC takeover)
+                    if self.emergency_stop:
+                        self.get_logger().warn('Handover interrupted by proximity alert. Yielding to MTC.')
+                        return # Exit the block so TRIGGER_MTC_SAFE_RESOLUTION can run!
+                        
+                    # 2. Otherwise, it was a real MoveIt failure. Go to HOME.
+                    self.get_logger().error('Real planning failure during handover. Going to RECOVERY.')
                     self.state = "RECOVERY"
                     return
-                
                 # 2. Move to Handover Zone and HOLD
                 self.get_logger().info(f'🔄 [HANDOVER] {arm_name} moving to handover zone')
                 if is_ar4:
@@ -698,7 +723,13 @@ class HybridAssemblySupervisor(Node):
                 give_goal = ExecuteTask.Goal(task_type="INTERMEDIATE_GIVE", target_pose=self.handover_pose)
                 result = await self.send_action_goal(client, give_goal)
                 if not result or not result.success:
-                    self.get_logger().error(f'{arm_name} failed to reach handover zone')
+                    # 1. Check if the failure was intentional (MTC takeover)
+                    if self.emergency_stop:
+                        self.get_logger().warn('Handover interrupted by proximity alert. Yielding to MTC.')
+                        return # Exit the block so TRIGGER_MTC_SAFE_RESOLUTION can run!
+                        
+                    # 2. Otherwise, it was a real MoveIt failure. Go to HOME.
+                    self.get_logger().error('Real planning failure during handover. Going to RECOVERY.')
                     self.state = "RECOVERY"
                     return
                 
@@ -730,7 +761,7 @@ class HybridAssemblySupervisor(Node):
                     # Transform grasp point to standard frame
                     grasp_for_receiver = grasp_result.grasp_point
                     grasp_for_receiver.pose = self.transform_pose_to_abb(grasp_for_receiver.pose)
-                    grasp_for_receiver.pose.position.z = 0.22
+                    grasp_for_receiver.pose.position.z = self.handover_pose.position.z
                     
                     self.abb_grasp_point_for_handover = grasp_for_receiver
                     self.get_logger().info(f'✅ Grasp point obtained. {receiving_arm} can now approach.')
@@ -758,6 +789,9 @@ class HybridAssemblySupervisor(Node):
                 take_goal = ExecuteTask.Goal(task_type="INTERMEDIATE_TAKE", target_pose=self.abb_grasp_point_for_handover.pose)
                 result = await self.send_action_goal(receiver_client, take_goal)
                 if not result or not result.success:
+                    if self.emergency_stop:
+                        self.get_logger().warn('Handover interrupted by proximity alert. Yielding to MTC.')
+                        return
                     self.get_logger().error(f'{receiving_arm} failed to reach handover zone / grasp brick')
                     self.state = "RECOVERY"
                     return
@@ -804,6 +838,9 @@ class HybridAssemblySupervisor(Node):
                 
                 result = await self.send_action_goal(placer_client, place_goal)
                 if not result or not result.success:
+                    if self.emergency_stop:
+                        self.get_logger().warn('Handover interrupted by proximity alert. Yielding to MTC.')
+                        return
                     self.get_logger().error(f'{receiving_arm} failed to place brick')
                     self.state = "RECOVERY"
                     return
@@ -823,27 +860,40 @@ class HybridAssemblySupervisor(Node):
                 self.get_logger().info('Executing MTC-based collaborative handover...')
 
                 if not self.mtc_handover_client.wait_for_service(timeout_sec=2.0):
-                    self.get_logger().error('MTC handover service not available! Falling back to standard mode.')
-                    await self.switch_control_mode("MULTITHREADED")
-                    self.state = "HANDOVER_SEQUENCE"
+                    self.get_logger().error('MTC handover service not available! Falling back to sequential Python mode.')
+                    # Fallback routing
+                    if self.current_brick.start_side == "AR4":
+                        self.state = "AR4_PICK_FOR_HANDOVER"
+                    else:
+                        self.state = "ABB_PICK_FOR_HANDOVER"
                     return
 
                 mtc_req = ExecuteMTCHandover.Request()
-                mtc_req.ar4_start_pose = self.current_grasp_point.pose
-                mtc_req.abb_start_pose = self.current_brick.pickup_pose
+                
+                # Route the poses correctly based on who is picking up the brick
+                if self.current_brick.start_side == "AR4":
+                    mtc_req.ar4_start_pose = self.current_grasp_point.pose
+                    mtc_req.abb_start_pose = self.current_brick.place_pose # ABB will end up placing it
+                else:
+                    mtc_req.abb_start_pose = self.current_grasp_point.pose
+                    mtc_req.ar4_start_pose = self.current_brick.place_pose # AR4 will end up placing it
+                    
                 mtc_req.handover_pose = self.handover_pose
                 mtc_req.object_id = self.current_brick.type
 
                 mtc_result = await self.mtc_handover_client.call_async(mtc_req)
 
                 if mtc_result.success:
-                    self.get_logger().info(f'MTC handover completed. Execution ID: {mtc_result.execution_id}')
+                    self.get_logger().info(f'✅ MTC handover fully completed. Execution ID: {mtc_result.execution_id}')
                     self.mtc_task_id = mtc_result.execution_id
                     self.state = "PROCESS_NEXT"
                 else:
-                    self.get_logger().error(f'MTC handover failed: {mtc_result.status_message}')
-                    await self.switch_control_mode("MULTITHREADED")
-                    self.state = "HANDOVER_SEQUENCE"
+                    self.get_logger().error(f'MTC handover failed to plan/execute: {mtc_result.status_message}')
+                    self.get_logger().warn('Falling back to sequential Python mode.')
+                    if self.current_brick.start_side == "AR4":
+                        self.state = "AR4_PICK_FOR_HANDOVER"
+                    else:
+                        self.state = "ABB_PICK_FOR_HANDOVER"
 
             # ================================================================
             # SEQUENTIAL FALLBACK STATES
@@ -879,7 +929,7 @@ class HybridAssemblySupervisor(Node):
                 self.ar4_stage = "PLACE"
                 place_goal = MoveToPose.Goal()
                 place_goal.target_pose = self.current_brick.place_pose
-                place_goal.target_pose.position.z = 0.22 
+                grasp_for_receiver.pose.position.z = self.handover_pose.position.z
                 place_goal.strategy = "PLACE"
                 action_result = await self.send_action_goal(self.ar4_client, place_goal)
                 if not action_result or not action_result.success:
@@ -925,10 +975,10 @@ class HybridAssemblySupervisor(Node):
 
             elif self.state == "RECOVERY":
                 self.get_logger().warn('Entering Recovery Mode')
-                recovery_goal = MoveToPose.Goal()
-                recovery_goal.strategy = "HOME"
+                # Fixed: Use ExecuteTask.Goal instead of MoveToPose
+                recovery_goal = ExecuteTask.Goal(task_type="HOME")
                 action_result = await self.send_action_goal(self.ar4_client, recovery_goal)
-
+                
                 if action_result and action_result.success:
                     self.get_logger().info('Recovery successful')
                     self.assembly_queue.insert(0, self.current_brick)
@@ -969,7 +1019,7 @@ class HybridAssemblySupervisor(Node):
                     self.abb_cancelled = False
 
                     # 3. USE THE RECOVERY WORKERS INSTEAD OF LEGACY STATES
-                    if self.ar4_stage in ["PICK", "PLACE"] and self.ar4_current_brick:
+                    if self.ar4_stage in ["PICK", "PLACE", "MOVE_TO_HANDOVER", "HOLDING_AT_HANDOVER"] and self.ar4_current_brick:
                         self.get_logger().info("Spawning AR4 Recovery Worker...")
                         self.ar4_busy = True
                         self.ar4_recovering = True
@@ -977,13 +1027,18 @@ class HybridAssemblySupervisor(Node):
                     else:
                         self.ar4_busy = False
 
-                    if self.abb_stage in ["PICK", "PLACE"] and self.abb_current_brick:
+                    if self.abb_stage in ["PICK", "PLACE", "MOVE_TO_HANDOVER", "HOLDING_AT_HANDOVER"] and self.abb_current_brick:
                         self.get_logger().info("Spawning ABB Recovery Worker...")
                         self.abb_busy = True
                         self.abb_recovering = True
                         self.executor.create_task(self.recover_abb_worker(self.abb_stage, self.abb_current_brick))
                     else:
                         self.abb_busy = False
+
+                    if self.current_brick:
+                        self.assembly_queue.insert(0, self.current_brick)
+                        self.get_logger().info("Failed brick safely returned to queue for retry.")
+                        self.current_brick = None    
 
                     # 4. Return to normal dispatching
                     self.state = "PROCESS_NEXT"
@@ -1009,11 +1064,11 @@ class HybridAssemblySupervisor(Node):
 
         except Exception as e:
             self.get_logger().error(f'State machine error: {e}')
-
-        if self.state != "DONE" and self.state != "WAIT_FOR_NEW_PLAN":
-            self.timer = self.create_timer(0.1, self.state_machine_loop, callback_group=self.cb_group)
-        elif self.state == "WAIT_FOR_NEW_PLAN":
-            self.timer = self.create_timer(0.1, self.state_machine_loop, callback_group=self.cb_group)
+        finally:
+            # 2. GUARANTEED HEARTBEAT RESTART
+            if self.state != "DONE":
+                tick_rate = 2.0 if self.state == "WAIT_FOR_NEW_PLAN" else 0.1
+                self.timer = self.create_timer(tick_rate, self.state_machine_loop, callback_group=self.cb_group)
 
     # ========================================================================
     # HELPER METHODS
@@ -1145,6 +1200,13 @@ class HybridAssemblySupervisor(Node):
             if self.emergency_stop or self.ar4_cancelled:
                 self.ar4_busy = False
                 return
+        elif stage in ["MOVE_TO_HANDOVER", "HOLDING_AT_HANDOVER"]:
+            self.get_logger().info("AR4 interrupted during Handover. Retracting safely to HOME...")
+            await self.send_action_goal(self.ar4_client, ExecuteTask.Goal(task_type="HOME"))
+
+            if self.emergency_stop or self.ar4_cancelled:
+                self.ar4_busy = False
+                return    
             
         self.ar4_stage = "DONE"
         self.ar4_busy = False
@@ -1193,7 +1255,13 @@ class HybridAssemblySupervisor(Node):
             if self.emergency_stop or self.abb_cancelled:
                 self.abb_busy = False
                 return
-            
+        elif stage in ["MOVE_TO_HANDOVER", "HOLDING_AT_HANDOVER"]:
+            self.get_logger().info("ABB interrupted during Handover. Retracting safely to HOME...")
+            await self.send_action_goal(self.abb_client, ExecuteTask.Goal(task_type="HOME"))
+
+            if self.emergency_stop or self.abb_cancelled:
+                self.abb_busy = False
+                return    
         self.abb_stage = "DONE"
         self.abb_busy = False
         self.abb_recovering = False

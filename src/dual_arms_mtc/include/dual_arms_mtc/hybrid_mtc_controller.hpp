@@ -19,6 +19,7 @@
 #include <dual_arms_msgs/action/execute_task.hpp>
 #include <dual_arms_msgs/srv/get_handover_zone.hpp>
 #include <dual_arms_msgs/srv/resolve_collision.hpp>
+#include <dual_arms_msgs/srv/execute_mtc_handover.hpp>
 
 // Custom headers
 #include <dual_arms_mtc/control_strategy.hpp>
@@ -62,6 +63,10 @@ public:
     void handle_resolve_collision(
         const std::shared_ptr<dual_arms_msgs::srv::ResolveCollision::Request> request,
         std::shared_ptr<dual_arms_msgs::srv::ResolveCollision::Response> response);
+
+    void handle_execute_handover(
+        const std::shared_ptr<dual_arms_msgs::srv::ExecuteMTCHandover::Request> request,
+        std::shared_ptr<dual_arms_msgs::srv::ExecuteMTCHandover::Response> response);    
 
     moveit::task_constructor::Task create_safe_resolution_task(
         const geometry_msgs::msg::Pose& ar4_target,
@@ -191,6 +196,7 @@ private:
 
     // MTC Resolution Service Server
     rclcpp::Service<dual_arms_msgs::srv::ResolveCollision>::SharedPtr safe_resolution_service_;
+    rclcpp::Service<dual_arms_msgs::srv::ExecuteMTCHandover>::SharedPtr handover_service_;
     // Methods
     void initialize_solvers();
     void load_handover_zone_config();

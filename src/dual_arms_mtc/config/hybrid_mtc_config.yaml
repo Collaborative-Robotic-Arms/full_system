@@ -22,7 +22,7 @@
       approach_margin: 0.15    # 15cm before entering critical zone
       
       # Safety distance between gripper tools during handover
-      min_arm_separation: 0.5  # ARTIFICIALLY HIGH FOR E-STOP TEST (Set to 0.10 later)
+      min_arm_separation: 0.3  # ARTIFICIALLY HIGH FOR E-STOP TEST (Set to 0.10 later)
 
     # Motion planning configuration
     motion_planning:

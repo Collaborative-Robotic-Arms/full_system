@@ -383,31 +383,37 @@ private:
 
     bool send_sim_gripper_command(bool open)
     {
-        if (!sim_gripper_client_->wait_for_action_server(std::chrono::seconds(2))) {
-            RCLCPP_ERROR(this->get_logger(), "Sim Gripper Action Server not found!");
-            return false;
-        }
+
+        RCLCPP_INFO(this->get_logger(), "SIMULATION MODE: Pretending to %s ABB gripper.", open ? "OPEN" : "CLOSE");
         
-        auto goal_msg = TrajectoryAction::Goal();
-        goal_msg.trajectory.joint_names = {
-            "gripper_ABB_Gripper_Finger_1_Joint", 
-            "gripper_ABB_Gripper_Finger_2_Joint"
-        };
+        // Sleep for half a second to simulate mechanical movement time
+        std::this_thread::sleep_for(std::chrono::milliseconds(500)); 
+        return true;
+        // if (!sim_gripper_client_->wait_for_action_server(std::chrono::seconds(2))) {
+        //     RCLCPP_ERROR(this->get_logger(), "Sim Gripper Action Server not found!");
+        //     return false;
+        // }
+        
+        // auto goal_msg = TrajectoryAction::Goal();
+        // goal_msg.trajectory.joint_names = {
+        //     "gripper_ABB_Gripper_Finger_1_Joint", 
+        //     "gripper_ABB_Gripper_Finger_2_Joint"
+        // };
 
-        trajectory_msgs::msg::JointTrajectoryPoint point;
-        double pos = open ? 0.0120 : 0.005; 
-        point.positions = {pos, pos};
-        point.time_from_start = rclcpp::Duration::from_seconds(2.0);
-        goal_msg.trajectory.points.push_back(point);
+        // trajectory_msgs::msg::JointTrajectoryPoint point;
+        // double pos = open ? 0.0120 : 0.005; 
+        // point.positions = {pos, pos};
+        // point.time_from_start = rclcpp::Duration::from_seconds(2.0);
+        // goal_msg.trajectory.points.push_back(point);
 
-        auto goal_handle_future = sim_gripper_client_->async_send_goal(goal_msg);
-        if (goal_handle_future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) return false;
+        // auto goal_handle_future = sim_gripper_client_->async_send_goal(goal_msg);
+        // if (goal_handle_future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) return false;
 
-        auto goal_handle = goal_handle_future.get();
-        if (!goal_handle) return false;
+        // auto goal_handle = goal_handle_future.get();
+        // if (!goal_handle) return false;
 
-        auto result_future = sim_gripper_client_->async_get_result(goal_handle);
-        return (result_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+        // auto result_future = sim_gripper_client_->async_get_result(goal_handle);
+        // return (result_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
     }
 };
 

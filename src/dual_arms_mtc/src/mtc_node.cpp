@@ -43,6 +43,11 @@ void HybridMTCController::init() {
         "mtc_controller/resolve_collision",
         std::bind(&HybridMTCController::handle_resolve_collision, this, std::placeholders::_1, std::placeholders::_2)
     );
+    // Initialize the Handover Execution Service
+    handover_service_ = create_service<dual_arms_msgs::srv::ExecuteMTCHandover>(
+        "mtc_controller/execute_handover",
+        std::bind(&HybridMTCController::handle_execute_handover, this, std::placeholders::_1, std::placeholders::_2)
+    );
     RCLCPP_INFO(get_logger(), "Hybrid MTC Controller initialized successfully");
 }
 
@@ -130,6 +135,7 @@ Task HybridMTCController::create_collaborative_handover_task(
     const geometry_msgs::msg::Pose& handover_point) {
 
     Task t;
+    t.loadRobotModel(shared_from_this(), "robot_description");
     t.stages()->setName("Collaborative Handover Task");
 
     // Stage 0: Get current state
@@ -204,6 +210,7 @@ Task HybridMTCController::create_synchronized_approach_task(
     const geometry_msgs::msg::Pose& abb_target) {
 
     Task t;
+    t.loadRobotModel(shared_from_this(), "robot_description");
     t.stages()->setName("Synchronized Approach Task");
 
     // Stage 0: Current state
@@ -230,6 +237,7 @@ Task HybridMTCController::create_handover_transfer_task(
     const geometry_msgs::msg::Pose& transfer_pose) {
 
     Task t;
+    t.loadRobotModel(shared_from_this(), "robot_description");
     t.stages()->setName("Handover Transfer Task");
 
     // Stage 0: Current state
@@ -267,6 +275,7 @@ Task HybridMTCController::create_sequential_handover_task(
     const geometry_msgs::msg::Pose& abb_target) {
 
     Task t;
+    t.loadRobotModel(shared_from_this(), "robot_description");
     t.stages()->setName("Sequential Handover Task");
 
     RCLCPP_INFO(get_logger(), "Creating SEQUENTIAL handover task (AR4 → intermediate → ABB → place)");
@@ -388,6 +397,7 @@ Task HybridMTCController::create_parallel_pick_place_task(
     const geometry_msgs::msg::Pose& abb_target) {
 
     Task t;
+    t.loadRobotModel(shared_from_this(), "robot_description");
     t.stages()->setName("Parallel Dual-Arm Pick/Place Task");
 
     RCLCPP_INFO(get_logger(), 
@@ -776,6 +786,50 @@ Task HybridMTCController::create_safe_resolution_task(
     t.add(std::move(move_abb));
 
     return t;
+}
+
+void HybridMTCController::handle_execute_handover(
+    const std::shared_ptr<dual_arms_msgs::srv::ExecuteMTCHandover::Request> request,
+    std::shared_ptr<dual_arms_msgs::srv::ExecuteMTCHandover::Response> response) {
+    
+    RCLCPP_INFO(get_logger(), "MTC TAKING OVER: Planning full collaborative handover sequence...");
+    switch_to_mtc_mode();
+
+    try {
+        // Create the task using your existing method
+        auto task = create_collaborative_handover_task(
+            request->ar4_start_pose, 
+            request->abb_start_pose, 
+            request->handover_pose
+        );
+
+        if (!task.plan(3)) { // Allow 3 attempts to find a valid handover graph
+            response->success = false;
+            response->status_message = "MTC Failed to find a valid handover trajectory.";
+            RCLCPP_ERROR(get_logger(), "%s", response->status_message.c_str());
+            switch_to_multithreaded_mode();
+            return;
+        }
+
+        RCLCPP_INFO(get_logger(), "Handover path found! Executing...");
+        
+        auto result = task.execute(*task.solutions().front());
+        
+        if (result.val == moveit_msgs::msg::MoveItErrorCodes::SUCCESS) {
+            response->success = true;
+            response->status_message = "Handover executed successfully.";
+            response->execution_id = generate_operation_id(); 
+        } else {
+            response->success = false;
+            response->status_message = "Execution failed.";
+        }
+
+    } catch (const std::exception& e) {
+        response->success = false;
+        response->status_message = std::string("MTC Exception: ") + e.what();
+    }
+    
+    switch_to_multithreaded_mode();
 }
 }  // namespace dual_arms_mtc
 

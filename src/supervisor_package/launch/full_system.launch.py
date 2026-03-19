@@ -39,15 +39,15 @@ def generate_launch_description():
     # ---------------------------------------------------------
     # MoveIt Dual Arms Launch (Spawns arms in Gazebo)
     # ---------------------------------------------------------
-    dual_arms_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([
-                get_package_share_directory('dual_arms'),
-                'launch',
-                'moveit_dualarms.launch.py'
-            ])
-        )
-    )
+    # dual_arms_launch = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource(
+    #         PathJoinSubstitution([
+    #             get_package_share_directory('dual_arms'),
+    #             'launch',
+    #             'moveit_dualarms.launch.py'
+    #         ])
+    #     )
+    # )
 
     # Load Kinematics (The "Math Book" for the robot)
     kinematics_config = load_yaml("annin_ar4_moveit_config", "config/kinematics.yaml")
@@ -128,7 +128,7 @@ def generate_launch_description():
         declare_use_sim_time,
         declare_test_scenario,
         # Start MoveIt + Gazebo with dual arms
-        dual_arms_launch,
+        # dual_arms_launch,
         # Start task servers (wait for MoveIt)
         ar4_task_server_node,
         # ar4_controller,
